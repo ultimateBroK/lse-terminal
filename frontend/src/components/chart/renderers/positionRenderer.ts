@@ -195,13 +195,26 @@ export function renderPositionLines(
           ctx.lineTo(chartWidth, slY);
           ctx.stroke();
           ctx.setLineDash([]);
-          ctx.font = '9px -apple-system, sans-serif';
+
+          const slText = `SL ${formatPrice(pos.stopLoss)}`;
+          ctx.font = '9px -apple-system, "Trebuchet MS", sans-serif';
+          const slTextW = ctx.measureText(slText).width;
+          const slBadgeW = slTextW + 8;
+          const slBadgeH = 14;
+          const slBadgeX = 4;
+          const slBadgeY = slY - slBadgeH / 2;
+
           ctx.fillStyle = colors.slColor || '#dc2626';
-          ctx.globalAlpha = 0.9;
+          ctx.globalAlpha = 0.85;
+          ctx.beginPath();
+          ctx.roundRect(slBadgeX, slBadgeY, slBadgeW, slBadgeH, 3);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 1;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText(`SL ${formatPrice(pos.stopLoss)}`, 4, slY);
-          ctx.globalAlpha = 1;
+          ctx.fillText(slText, slBadgeX + 4, slY);
         }
       }
       if (pos.takeProfit) {
@@ -216,13 +229,26 @@ export function renderPositionLines(
           ctx.lineTo(chartWidth, tpY);
           ctx.stroke();
           ctx.setLineDash([]);
-          ctx.font = '9px -apple-system, sans-serif';
+
+          const tpText = `TP ${formatPrice(pos.takeProfit)}`;
+          ctx.font = '9px -apple-system, "Trebuchet MS", sans-serif';
+          const tpTextW = ctx.measureText(tpText).width;
+          const tpBadgeW = tpTextW + 8;
+          const tpBadgeH = 14;
+          const tpBadgeX = 4;
+          const tpBadgeY = tpY - tpBadgeH / 2;
+
           ctx.fillStyle = colors.tpColor || '#16a34a';
-          ctx.globalAlpha = 0.9;
+          ctx.globalAlpha = 0.85;
+          ctx.beginPath();
+          ctx.roundRect(tpBadgeX, tpBadgeY, tpBadgeW, tpBadgeH, 3);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 1;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          ctx.fillText(`TP ${formatPrice(pos.takeProfit)}`, 4, tpY);
-          ctx.globalAlpha = 1;
+          ctx.fillText(tpText, tpBadgeX + 4, tpY);
         }
       }
     }

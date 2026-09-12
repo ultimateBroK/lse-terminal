@@ -61,26 +61,26 @@ interface StoredTrading {
   tpOpacity?: number;
 }
 
-// Default colors based on theme
-const getThemeDefaults = (isDark: boolean): ChartColors => ({
-  upColor: '#22c55e',
-  downColor: '#ef5350',
+// Default colors based on theme - unified white background and monochrome candles
+const getThemeDefaults = (_isDark: boolean): ChartColors => ({
+  upColor: '#ffffff',
+  downColor: '#000000',
   upBorderColor: '#000000',
   downBorderColor: '#000000',
   wickUpColor: '#000000',
   wickDownColor: '#000000',
   backgroundColor: '#ffffff',
   backgroundOpacity: 100,
-  gridColor: '#9ca3af',
+  gridColor: 'rgba(0, 0, 0, 0.05)',
   gridOpacity: 20,
-  axisLabelColor: isDark ? '#b2b5be' : '#000000',
-  axisLineColor: isDark ? '#666666' : '#999999',
+  axisLabelColor: '#000000',
+  axisLineColor: 'rgba(0, 0, 0, 0.1)',
   // Neutral last-price tag by default; see PRICE_TAG_NEUTRAL.
   priceTickerBullish: PRICE_TAG_NEUTRAL,
   priceTickerBearish: PRICE_TAG_NEUTRAL,
-  slColor: '#dc2626',
+  slColor: '#ff0011',
   slOpacity: 70,
-  tpColor: '#16a34a',
+  tpColor: '#00875a',
   tpOpacity: 70,
 });
 

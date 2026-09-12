@@ -167,34 +167,27 @@ export interface ProChartProps {
 // the crosshair label's background (crosshairRenderer labelBg fallback and
 // ChartSettingsDialog crosshairLabelBg default are this same value); the
 // user can still recolour them in Appearance, the change is only the default.
-export const PRICE_TAG_NEUTRAL = '#131722';
+export const PRICE_TAG_NEUTRAL = '#000000';
 
 export const getDefaultColors = () => {
-  const isDark = typeof document !== 'undefined'
-    ? document.documentElement.classList.contains('dark')
-    : true;
-
   return {
-    // Neutral charcoal matching the shell's --bg (no deep blacks anywhere,
-    // superseding the earlier pixel-sampled #0d0d0d), so
-    // chart and chrome sit on one continuous surface. Neutral grid, no blue.
-    // Keep in step with style.css :root --bg and the compiled chart.js copy:
-    // the shipped bundle was hand-patched with these same values.
-    background: isDark ? '#212121' : '#ffffff',
-    grid: isDark ? '#343434' : '#e0e3eb',
-    text: isDark ? '#ffffff' : '#000000',
-    textDim: isDark ? '#666666' : '#999999',
-    bullish: '#22c55e',
-    bearish: '#ef4444',
-    bullishBorder: '#16a34a',
-    bearishBorder: '#dc2626',
-    bullishWick: '#22c55e',
-    bearishWick: '#ef4444',
-    crosshair: isDark ? '#ffffff40' : '#00000040',
-    priceLine: '#3b82f6',
-    priceTickerBullish: PRICE_TAG_NEUTRAL,
-    priceTickerBearish: PRICE_TAG_NEUTRAL,
-    axisLabel: isDark ? '#b2b5be' : '#000000',
-    axisLine: isDark ? '#2a2e39' : '#e0e3eb',
+    // Unified clean white background with crisp monochrome candles (matching user's TradingView setup)
+    // Dark and light themes both share this unified chart canvas as requested by user.
+    background: '#ffffff',
+    grid: 'rgba(0, 0, 0, 0.05)',
+    text: '#000000',
+    textDim: '#64748b',
+    bullish: '#ffffff',
+    bearish: '#000000',
+    bullishBorder: '#000000',
+    bearishBorder: '#000000',
+    bullishWick: '#000000',
+    bearishWick: '#000000',
+    crosshair: '#00000040',
+    priceLine: '#000000',
+    priceTickerBullish: '#000000',
+    priceTickerBearish: '#000000',
+    axisLabel: '#000000',
+    axisLine: 'rgba(0, 0, 0, 0.1)',
   };
 };

@@ -1822,7 +1822,8 @@ const ProChart: React.FC<ProChartProps> = ({
       });
     } else if (chartType === 'line') {
       // Draw line chart
-      ctx.strokeStyle = colors.bullish;
+      const isMonochrome = colors.background === '#ffffff' && colors.bullish === '#ffffff';
+      ctx.strokeStyle = isMonochrome ? '#0f172a' : (colors.priceLine || colors.bullish);
       ctx.lineWidth = 2;
       ctx.beginPath();
 
@@ -1839,9 +1840,15 @@ const ProChart: React.FC<ProChartProps> = ({
       ctx.stroke();
     } else if (chartType === 'area') {
       // Draw area chart with gradient fill
+      const isMonochrome = colors.background === '#ffffff' && colors.bullish === '#ffffff';
       const gradient = ctx.createLinearGradient(0, 0, 0, mainChartHeight);
-      gradient.addColorStop(0, 'rgba(34, 197, 94, 0.4)');
-      gradient.addColorStop(1, 'rgba(34, 197, 94, 0.02)');
+      if (isMonochrome) {
+        gradient.addColorStop(0, 'rgba(15, 23, 42, 0.20)');
+        gradient.addColorStop(1, 'rgba(15, 23, 42, 0.00)');
+      } else {
+        gradient.addColorStop(0, 'rgba(0, 255, 187, 0.35)');
+        gradient.addColorStop(1, 'rgba(0, 255, 187, 0.00)');
+      }
 
       // First draw the filled area
       ctx.beginPath();
@@ -1868,7 +1875,7 @@ const ProChart: React.FC<ProChartProps> = ({
       }
 
       // Then draw the line on top
-      ctx.strokeStyle = colors.bullish;
+      ctx.strokeStyle = isMonochrome ? '#0f172a' : (colors.priceLine || colors.bullish);
       ctx.lineWidth = 2;
       ctx.beginPath();
       visible.candles.forEach((candle, i) => {

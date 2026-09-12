@@ -94,35 +94,43 @@ const getDefaultScrollSensitivity = (): number => {
   return 2; // Windows/other default
 };
 
+const getInitialTimezone = (): string => {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('terminal_timezone') || (window as any).__terminalTimezone;
+    if (saved) return saved;
+  }
+  return 'Asia/Bangkok';
+};
+
 export const getDefaultSettings = (): ChartSettings => {
   return {
     candles: {
-      bodyBullish: "#22c55e",
-      bodyBearish: "#ef5350",
-      bordersBullish: "#000000",  // Black borders by default
+      bodyBullish: "#ffffff",
+      bodyBearish: "#000000",
+      bordersBullish: "#000000",
       bordersBearish: "#000000",
-      wickBullish: "#000000",     // Black wicks by default
+      wickBullish: "#000000",
       wickBearish: "#000000",
     },
     chart: {
       backgroundColor: "#ffffff",
       backgroundOpacity: 100,
-      gridColor: "#9ca3af",
-      gridOpacity: 30,
+      gridColor: "rgba(0, 0, 0, 0.05)",
+      gridOpacity: 25,
       gridHorizontalLines: 45,
       gridVerticalLines: 16,
       scrollSensitivity: getDefaultScrollSensitivity(),
-      axisLabelColor: "#787b86",
-      axisLineColor: "#666666",
+      axisLabelColor: "#000000",
+      axisLineColor: "rgba(0, 0, 0, 0.1)",
       // Neutral by default: the last-price tag matches the
       // crosshair label below instead of a green/red box; see PRICE_TAG_NEUTRAL.
-      priceTickerBullish: PRICE_TAG_NEUTRAL,
-      priceTickerBearish: PRICE_TAG_NEUTRAL,
+      priceTickerBullish: "#000000",
+      priceTickerBearish: "#000000",
       crosshairColor: "#6b7280",
-      crosshairLabelBg: "#131722",
+      crosshairLabelBg: "#000000",
     },
     data: {
-      timezone: "local",  // Default to local time
+      timezone: getInitialTimezone(),
     },
     alerts: {
       alertLinesVisible: true,
@@ -687,6 +695,7 @@ export function ChartSettingsDialog({ open, onOpenChange, initialTab }: ChartSet
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="Asia/Bangkok">Bangkok, Hanoi, Jakarta (UTC+7)</SelectItem>
                             <SelectItem value="UTC">UTC</SelectItem>
                             <SelectItem value="local">Local Time</SelectItem>
                             <SelectItem value="America/New_York">New York (EST/EDT)</SelectItem>

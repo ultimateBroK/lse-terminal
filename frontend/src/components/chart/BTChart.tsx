@@ -1609,8 +1609,8 @@ const ProChart: React.FC<ProChartProps> = ({
     } else if (chartType === 'area') {
       // Draw area chart with gradient fill
       const gradient = ctx.createLinearGradient(0, 0, 0, mainChartHeight);
-      gradient.addColorStop(0, 'rgba(34, 197, 94, 0.4)');
-      gradient.addColorStop(1, 'rgba(34, 197, 94, 0.02)');
+      gradient.addColorStop(0, 'rgba(0, 255, 187, 0.35)');
+      gradient.addColorStop(1, 'rgba(0, 255, 187, 0.00)');
 
       // First draw the filled area
       ctx.beginPath();

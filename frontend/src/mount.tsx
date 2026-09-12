@@ -323,7 +323,13 @@ function TerminalChart({ provider, symbol, timeframe, candles, chartType = 'cand
       ]);
       if (!alive) return;
       setDrawings(saved as Drawing[]);
-      setIndicators(savedIndicators ?? DEFAULT_INDICATOR_CONFIG);
+      const cleanLoaded = savedIndicators
+        ? ({
+            ...savedIndicators,
+            customIndicators: (savedIndicators.customIndicators || []).filter((ci) => !ci.id || !ci.id.startsWith("local-")),
+          } as IndicatorConfig)
+        : DEFAULT_INDICATOR_CONFIG;
+      setIndicators(cleanLoaded);
       setSelectedDrawingId(null);
       loadedKeyRef.current = instrumentKey;
     })();
@@ -341,7 +347,11 @@ function TerminalChart({ provider, symbol, timeframe, candles, chartType = 'cand
   const handleIndicatorsChange = useCallback((next: IndicatorConfig) => {
     setIndicators(next);
     if (loadedKeyRef.current === instrumentKey) {
-      void api.setIndicators(instrumentKey, next);
+      const cleanToSave = {
+        ...next,
+        customIndicators: (next.customIndicators || []).filter((ci) => !ci.id || !ci.id.startsWith("local-")),
+      } as IndicatorConfig;
+      void api.setIndicators(instrumentKey, cleanToSave);
     }
   }, [instrumentKey]);
 
@@ -365,8 +375,8 @@ function TerminalChart({ provider, symbol, timeframe, candles, chartType = 'cand
   // widget. Recomputed only when the candles or the payload change.
   const withEngineIndicators = useMemo(() => {
     const custom = toCustomIndicators(engineIndicators, candles);
-    if (!custom.length) return indicators;
-    return { ...indicators, customIndicators: custom } as IndicatorConfig;
+    const existing = (indicators?.customIndicators || []).filter((ci) => !ci.id || !ci.id.startsWith("local-"));
+    return { ...indicators, customIndicators: [...existing, ...custom] } as IndicatorConfig;
   }, [indicators, engineIndicators, candles]);
 
   // Candle/background/grid colours come from the user's saved chart settings
@@ -385,31 +395,36 @@ function TerminalChart({ provider, symbol, timeframe, candles, chartType = 'cand
     const c = chartSettings?.candles;
     const ch = chartSettings?.chart;
     if (!hasSavedAppearance || !c || !ch) return { ...base };
+    // Migrate old defaults if saved in old sessions:
+    const bullish = (c.bodyBullish === '#22c55e' || c.bodyBullish === '#26a69a' || c.bodyBullish === '#00ffbb') ? '#ffffff' : (c.bodyBullish || base.bullish);
+    const bearish = (c.bodyBearish === '#ef5350' || c.bodyBearish === '#ef4444' || c.bodyBearish === '#ff0011') ? '#000000' : (c.bodyBearish || base.bearish);
+    const bg = (ch.backgroundColor === '#212121' || ch.backgroundColor === '#1e222d' || ch.backgroundColor === '#131722' || ch.backgroundColor === '#000000') ? '#ffffff' : (ch.backgroundColor || base.background);
     return {
       ...base,
-      background: ch.backgroundColor,
+      background: bg,
       backgroundOpacity: ch.backgroundOpacity,
-      grid: ch.gridColor,
+      grid: (ch.gridColor === 'rgba(255, 255, 255, 0.04)' || ch.gridColor === '#e0e3eb') ? base.grid : (ch.gridColor || base.grid),
       gridOpacity: ch.gridOpacity,
-      axisLabel: ch.axisLabelColor,
-      axisLine: ch.axisLineColor,
-      crosshair: ch.crosshairColor,
-      priceTickerBullish: ch.priceTickerBullish,
-      priceTickerBearish: ch.priceTickerBearish,
-      bullish: c.bodyBullish,
-      bearish: c.bodyBearish,
-      bullishBorder: c.bordersBullish,
-      bearishBorder: c.bordersBearish,
-      bullishWick: c.wickBullish,
-      bearishWick: c.wickBearish,
+      axisLabel: (ch.axisLabelColor === '#94a3b8' || !ch.axisLabelColor) ? base.axisLabel : ch.axisLabelColor,
+      axisLine: ch.axisLineColor || base.axisLine,
+      crosshair: ch.crosshairColor || base.crosshair,
+      priceTickerBullish: (ch.priceTickerBullish === '#0a0a0c' || !ch.priceTickerBullish) ? base.priceTickerBullish : ch.priceTickerBullish,
+      priceTickerBearish: (ch.priceTickerBearish === '#0a0a0c' || !ch.priceTickerBearish) ? base.priceTickerBearish : ch.priceTickerBearish,
+      bullish,
+      bearish,
+      bullishBorder: (c.bordersBullish === '#00ffbb' || c.bordersBullish === '#16a34a' || !c.bordersBullish) ? '#000000' : c.bordersBullish,
+      bearishBorder: (c.bordersBearish === '#ff0011' || c.bordersBearish === '#dc2626' || !c.bordersBearish) ? '#000000' : c.bordersBearish,
+      bullishWick: (c.wickBullish === '#00ffbb' || c.wickBullish === '#22c55e' || !c.wickBullish) ? '#000000' : c.wickBullish,
+      bearishWick: (c.wickBearish === '#ff0011' || c.wickBearish === '#ef4444' || c.wickBearish === '#ef5350' || !c.wickBearish) ? '#000000' : c.wickBearish,
     };
   }, [chartSettings, hasSavedAppearance]);
-  // The settings panel's Timezone pick (data.timezone, default "local") must
+  // The settings panel's Timezone pick (data.timezone, default "Asia/Bangkok") must
   // be passed to ProChart explicitly: the prop's own default is 'UTC', so
   // omitting it pinned every axis/crosshair/badge time to raw UTC and made
   // the Timezone setting a silent no-op (AAPL bar times rendered shifted
   // by the UTC offset).
-  const chartTimezone = chartSettings?.data?.timezone || 'local';
+  const defaultTz = (typeof window !== 'undefined' && ((window as any).__terminalTimezone || localStorage.getItem('terminal_timezone'))) || 'Asia/Bangkok';
+  const chartTimezone = chartSettings?.data?.timezone || defaultTz;
   const timeframeMs = TF_MS[timeframe] ?? 3600000;
   const livePrice = candles.length ? candles[candles.length - 1].close : null;
 
@@ -480,7 +495,7 @@ function TerminalChart({ provider, symbol, timeframe, candles, chartType = 'cand
           engine's 33 drawing tools is reachable exactly as on the live chart. */}
       {/* The rail wears the SHELL's chrome vars, not the chart palette: it
           must follow the terminal's light/dark class like every other panel. */}
-      <div className="shrink-0 border-r border-[var(--edge)] bg-[var(--panel)] overflow-y-auto">
+      <div className="shrink-0 border-r border-[var(--edge)] bg-white dark:bg-[#070b09]/95 backdrop-blur-md overflow-y-auto">
         <DrawingToolsPanel
           activeTool={activeTool}
           onToolSelect={setActiveTool}
@@ -993,7 +1008,7 @@ function PaneChart({ symbol, timeframe, candles, quote }: {
       indicators={DEFAULT_INDICATOR_CONFIG}
       // Same timezone wiring as the primary chart: without the prop ProChart
       // defaults to 'UTC' and ignores the user's Timezone setting.
-      timezone={chartSettings?.data?.timezone || 'local'}
+      timezone={chartSettings?.data?.timezone || ((typeof window !== 'undefined' && ((window as any).__terminalTimezone || localStorage.getItem('terminal_timezone'))) || 'Asia/Bangkok')}
       showBidAskSpread={!!quote}
       brokerBid={quote?.bid ?? null}
       brokerAsk={quote?.ask ?? null}

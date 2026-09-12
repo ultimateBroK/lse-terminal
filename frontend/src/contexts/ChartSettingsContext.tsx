@@ -219,6 +219,30 @@ export function ChartSettingsProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Listen for terminal-wide timezone changes from header settings modal
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onTzChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<{ timezone?: string; syncChart?: boolean }>;
+      const tz = customEvent?.detail?.timezone || (window as any).__terminalTimezone;
+      const syncChart = customEvent?.detail?.syncChart ?? true;
+      if (tz && syncChart) {
+        setSettings(prev => {
+          if (prev?.data?.timezone === tz) return prev;
+          return {
+            ...prev,
+            data: {
+              ...prev.data,
+              timezone: tz,
+            },
+          };
+        });
+      }
+    };
+    window.addEventListener('terminal-timezone-changed', onTzChanged);
+    return () => window.removeEventListener('terminal-timezone-changed', onTzChanged);
+  }, []);
+
   // Unmount cleanup so a timer can't fire after the provider is gone.
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
