@@ -13,8 +13,7 @@
 // so a user's setup survives reinstalls the way the rest of the terminal does.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 // echarts is driven directly (init/setOption/ResizeObserver) instead of via
 // echarts-for-react: inside this IIFE library bundle the wrapper applied the
 // option with an empty series list (verified against a live instance where a
@@ -40,22 +39,75 @@ type EconEvent = {
   consensus_revised?: number;
 };
 
-// Terminal chrome tokens, read from the shell's style.css variables so the
-// calendar follows the terminal's light/dark class. Module-init read is safe:
-// the theme boot script settles the html class before any bundle runs, and a
-// theme switch reloads the page (see app.js), so the values never go stale.
-const cssVar = (name: string, fallback: string): string =>
-  (typeof document !== 'undefined' &&
-    getComputedStyle(document.documentElement).getPropertyValue(name).trim()) || fallback;
+function formatEconEventTime(e: EconEvent, tz: string): string {
+  if (e.datetime) {
+    try {
+      const d = new Date(e.datetime);
+      if (!isNaN(d.getTime())) {
+        return new Intl.DateTimeFormat('en-GB', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+          timeZone: tz === 'local' ? undefined : tz,
+        }).format(d);
+      }
+    } catch {
+      // fallback
+    }
+  }
+  return e.time || '—';
+}
+
+function useIsDark(): boolean {
+  const [isDark, setIsDark] = useState(() =>
+    typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true
+  );
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const update = () => setIsDark(document.documentElement.classList.contains('dark'));
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    window.addEventListener('theme-change', update);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener('theme-change', update);
+    };
+  }, []);
+  return isDark;
+}
+
+function getChartColors(isDark: boolean) {
+  return {
+    text: isDark ? '#f4f4f5' : '#09090b',
+    dim: isDark ? '#94a3b8' : '#64748b',
+    edge: isDark ? 'rgba(255, 255, 255, 0.08)' : '#cbd5e1',
+    grid: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.06)',
+    tooltipBg: isDark ? 'rgba(21, 22, 25, 0.96)' : 'rgba(255, 255, 255, 0.96)',
+    up: isDark ? '#00ffbb' : '#00875a',
+    down: isDark ? '#ff0011' : '#dc2626',
+    actual: isDark ? '#00ffbb' : '#00875a',
+    consensus: '#f59e0b',
+    previous: '#6366f1',
+    area: isDark ? 'rgba(0, 255, 187, 0.15)' : 'rgba(0, 135, 90, 0.15)',
+  };
+}
+
 const C = {
-  bg: cssVar('--bg', '#0d0e10'), panel: cssVar('--panel', '#151619'),
-  edge: cssVar('--edge', '#26282c'), active: cssVar('--active', '#1b1d20'),
-  text: cssVar('--text', '#e6e8ea'), dim: cssVar('--dim', '#8b8e94'),
-  up: cssVar('--up', '#21b3a4'), down: cssVar('--down', '#f0426c'),
-  // Series colors validated (dataviz six checks) against the dark surface:
-  // marks also differ (bar / dashed / dotted) so identity never rides on
-  // color alone.
-  actual: '#5b8def', consensus: '#c58435', previous: '#9575dd',
+  bg: 'var(--bg)',
+  bg2: 'var(--bg2)',
+  panel: 'var(--panel)',
+  edge: 'var(--edge)',
+  active: 'var(--active)',
+  text: 'var(--text)',
+  textMuted: 'var(--dim)',
+  dim: 'var(--dim)',
+  up: 'var(--up)',
+  down: 'var(--down)',
+  actual: 'var(--up)',
+  consensus: '#f59e0b',
+  previous: '#6366f1',
+  item: 'var(--item)',
+  hover: 'var(--hover)',
 };
 
 // Region -> ISO 3166-1 alpha-2 for flagcdn.com (the same source the chart
@@ -75,7 +127,7 @@ const FLAG_ISO: Record<string, string> = {
 // code-only rather than requesting a 404 from the flag CDN.
 const NO_FLAG = new Set(['IF', 'WL', 'XX']);
 
-function Flag({ code, size = 12 }: { code: string; size?: number }) {
+function Flag({ code, size = 14 }: { code: string; size?: number }) {
   const [ok, setOk] = useState(true);
   const cc = (code || '').toUpperCase();
   // FLAG_ISO covers the calendar's ~26 region codes and their aliases (UK->gb,
@@ -90,7 +142,7 @@ function Flag({ code, size = 12 }: { code: string; size?: number }) {
       src={`https://flagcdn.com/w20/${iso}.png`}
       srcSet={`https://flagcdn.com/w40/${iso}.png 2x`}
       width={Math.round(size * 4 / 3)} height={size}
-      style={{ display: 'inline-block', verticalAlign: '-1px', borderRadius: 1 }}
+      style={{ display: 'inline-block', verticalAlign: '-1px', borderRadius: 3, boxShadow: '0 1px 3px rgba(0,0,0,0.5)' }}
       onError={() => setOk(false)} alt=""
     />
   );
@@ -363,16 +415,33 @@ function Seg({ options, value, onChange }: {
   onChange: (k: string) => void;
 }) {
   return (
-    <div style={{ display: 'inline-flex', background: C.panel, border: `1px solid ${C.edge}`, borderRadius: 4 }}>
-      {options.map((o) => (
-        <button key={o.key} onClick={() => onChange(o.key)}
-          style={{
-            padding: '4px 10px', fontSize: 11, letterSpacing: '.04em', border: 'none',
-            cursor: 'pointer', borderRadius: 3,
-            background: value === o.key ? C.edge : 'transparent',
-            color: value === o.key ? C.text : C.dim,
-          }}>{o.label}</button>
-      ))}
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      background: 'var(--bg2)',
+      border: `1px solid ${C.edge}`,
+      borderRadius: 8,
+      padding: 2,
+      gap: 2,
+    }}>
+      {options.map((o) => {
+        const active = value === o.key;
+        return (
+          <button key={o.key} onClick={() => onChange(o.key)}
+            style={{
+              padding: '5px 11px',
+              fontSize: 12,
+              fontWeight: active ? 600 : 500,
+              letterSpacing: '.03em',
+              border: active ? `1px solid ${C.up}` : '1px solid transparent',
+              cursor: 'pointer',
+              borderRadius: 6,
+              background: active ? 'var(--hover)' : 'transparent',
+              color: active ? C.up : C.dim,
+              transition: 'all 0.15s ease',
+            }}>{o.label}</button>
+        );
+      })}
     </div>
   );
 }
@@ -381,9 +450,23 @@ function Toggle({ label, color, checked, onChange }: {
   label: string; color?: string; checked: boolean; onChange: (v: boolean) => void;
 }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: checked ? C.text : C.dim, cursor: 'pointer', userSelect: 'none' }}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: color || C.actual }} />
-      {color && <span style={{ width: 8, height: 8, borderRadius: 2, background: color, opacity: checked ? 1 : 0.35 }} />}
+    <label style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 6,
+      fontSize: 12,
+      fontWeight: 500,
+      color: checked ? C.text : C.dim,
+      cursor: 'pointer',
+      userSelect: 'none',
+      padding: '4px 8px',
+      borderRadius: 6,
+      background: checked ? 'var(--bg2)' : 'transparent',
+      border: `1px solid ${checked ? C.edge : 'transparent'}`,
+      transition: 'all 0.15s ease',
+    }}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ accentColor: color || C.actual, cursor: 'pointer' }} />
+      {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, boxShadow: checked ? `0 0 6px ${color}` : 'none', opacity: checked ? 1 : 0.35 }} />}
       {label}
     </label>
   );
@@ -432,16 +515,23 @@ function HeadlineChart({ title, ind, sel, onOpen }: {
   const step = vals.length > 1 ? w / (vals.length - 1) : w;
   const y = (v: number) => h - ((v - min) / (max - min)) * h;
   const pts = vals.map((v, i) => `${(i * step).toFixed(2)},${y(v).toFixed(2)}`);
-  const label = { color: C.dim, fontSize: 9, fontVariantNumeric: 'tabular-nums' as const };
+  const label = { color: C.dim, fontSize: 9.5, fontVariantNumeric: 'tabular-nums' as const };
   return (
     <div onClick={onOpen}
-      style={{ background: C.panel, border: `1px solid ${sel ? C.actual : C.edge}`,
-               padding: '8px 10px 6px', cursor: 'pointer', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-        <span style={{ color: C.actual, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+      style={{
+        background: sel ? 'var(--hover)' : 'var(--bg2)',
+        border: `1px solid ${sel ? C.up : C.edge}`,
+        borderRadius: 10,
+        padding: '10px 12px 8px',
+        cursor: 'pointer',
+        minWidth: 0,
+        transition: 'all 0.15s ease',
+      }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+        <span style={{ color: sel ? C.up : C.text, fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
                        overflow: 'hidden', textOverflow: 'ellipsis' }} title={ind.name}>{title}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12.5, fontFamily: 'ui-monospace, Consolas, monospace',
-                       fontVariantNumeric: 'tabular-nums', color: C.text }}>
+        <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, fontFamily: 'ui-monospace, Consolas, monospace',
+                       fontVariantNumeric: 'tabular-nums', color: C.up }}>
           {fmtVal(vals[vals.length - 1], ind.unit)}
         </span>
       </div>
@@ -502,13 +592,44 @@ function categoryOf(name: string): string {
   return 'Other';
 }
 
-const IMPACT_DOT: Record<string, string> = { high: C.down, medium: C.consensus, low: '#565a61' };
+const IMPACT_DOT: Record<string, string> = { high: C.down, medium: C.consensus, low: '#64748b' };
+
+function ImpactBadge({ impact }: { impact: string }) {
+  const imp = (impact || 'low').toLowerCase();
+  const cfg = imp === 'high'
+    ? { bg: 'rgba(255, 0, 17, 0.12)', border: 'rgba(255, 0, 17, 0.35)', color: '#ff0011', text: 'HIGH' }
+    : imp === 'medium'
+      ? { bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.35)', color: '#fbbf24', text: 'MED' }
+      : { bg: 'rgba(148, 163, 184, 0.08)', border: 'rgba(148, 163, 184, 0.2)', color: '#94a3b8', text: 'LOW' };
+
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 5,
+      padding: '2px 7px',
+      borderRadius: 6,
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: '.04em',
+      background: cfg.bg,
+      border: `1px solid ${cfg.border}`,
+      color: cfg.color,
+      lineHeight: 1.2,
+      flexShrink: 0,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: cfg.color, boxShadow: `0 0 5px ${cfg.color}` }} />
+      {cfg.text}
+    </span>
+  );
+}
 
 // ── main page ──────────────────────────────────────────────────────────────
 
 export default function EconomicCalendarPage(
   { onBack, initialView }: { onBack?: () => void; initialView?: Prefs['view'] },
 ) {
+  const isDark = useIsDark();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [events, setEvents] = useState<EconEvent[]>([]);
@@ -518,7 +639,24 @@ export default function EconomicCalendarPage(
   const [selected, setSelected] = useState<{ region: string; event: string } | null>(null);
   const [history, setHistory] = useState<EconEvent[] | null>(null);
   const [histLoading, setHistLoading] = useState(false);
+  const [terminalTz, setTerminalTz] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (window as any).__terminalTimezone || localStorage.getItem('terminal_timezone') || 'Asia/Bangkok';
+    }
+    return 'Asia/Bangkok';
+  });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ timezone?: string }>;
+      const tz = ce?.detail?.timezone || (window as any).__terminalTimezone || 'Asia/Bangkok';
+      setTerminalTz(tz);
+    };
+    window.addEventListener('terminal-timezone-changed', handler);
+    return () => window.removeEventListener('terminal-timezone-changed', handler);
+  }, []);
 
   // The native title bar mirrors what is on screen:
   // the open series when a detail pane is up ("United States GDP Price
@@ -740,15 +878,15 @@ export default function EconomicCalendarPage(
   const allRegions = Object.keys(REGIONS).sort();
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, fontSize: 12, minHeight: 0 }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, color: C.text, fontSize: 13, minHeight: 0 }}>
       {/* toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: C.panel, borderBottom: `1px solid ${C.edge}`, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: C.panel, borderBottom: `1px solid ${C.edge}`, flexWrap: 'wrap' }}>
         {onBack && (
-          <button onClick={onBack} style={{ background: 'transparent', border: `1px solid ${C.edge}`, color: C.dim, borderRadius: 3, padding: '4px 8px', cursor: 'pointer' }}>
+          <button onClick={onBack} style={{ background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.dim, borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
             ← My Data
           </button>
         )}
-        <span style={{ fontWeight: 700, letterSpacing: '.12em', fontSize: 11, color: C.dim }}>ECONOMIC</span>
+        <span style={{ fontWeight: 800, letterSpacing: '.14em', fontSize: 11, color: C.up }}>ECONOMIC</span>
         <Seg value={prefs.view} onChange={(k) => update({ view: k as Prefs['view'] })}
           options={[{ key: 'calendar', label: 'Calendar' }, { key: 'countries', label: 'Countries' },
                     { key: 'indicators', label: 'Indicators' }, { key: 'yields', label: 'Bond Yields' },
@@ -759,36 +897,36 @@ export default function EconomicCalendarPage(
                     { key: 'nextweek', label: 'Next Week' }, { key: 'month', label: 'Next Month' },
                     { key: 'past-month', label: 'Past Month' }, { key: 'custom', label: 'Custom' }]} />
         {prefs.range === 'custom' && (
-          <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
             <input type="date" value={prefs.customStart} onChange={(e) => update({ customStart: e.target.value })}
-              style={{ background: C.bg, color: C.text, border: `1px solid ${C.edge}`, borderRadius: 3, padding: '3px 6px', colorScheme: 'dark' }} />
+              style={{ background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, colorScheme: isDark ? 'dark' : 'light' }} />
             <span style={{ color: C.dim }}>→</span>
             <input type="date" value={prefs.customEnd} onChange={(e) => update({ customEnd: e.target.value })}
-              style={{ background: C.bg, color: C.text, border: `1px solid ${C.edge}`, borderRadius: 3, padding: '3px 6px', colorScheme: 'dark' }} />
+              style={{ background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, colorScheme: isDark ? 'dark' : 'light' }} />
           </span>
         )}
         {/* region picker */}
         <div style={{ position: 'relative' }}>
           <button onClick={() => setRegionOpen((o) => !o)}
-            style={{ background: C.bg, border: `1px solid ${C.edge}`, color: C.text, borderRadius: 3, padding: '4px 8px', cursor: 'pointer' }}>
+            style={{ background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.text, borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {prefs.regions.length === allRegions.length ? 'All regions'
               : prefs.regions.length <= 3 ? prefs.regions.join(', ')
               : `${prefs.regions.length} regions`} ▾
           </button>
           {regionOpen && (
-            <div style={{ position: 'absolute', top: '110%', left: 0, zIndex: 30, background: C.panel, border: `1px solid ${C.edge}`, borderRadius: 4, padding: 8, width: 230, maxHeight: 320, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <button onClick={() => update({ regions: MAJORS })} style={{ flex: 1, background: C.edge, border: 'none', color: C.text, borderRadius: 3, padding: '3px 0', cursor: 'pointer', fontSize: 11 }}>Majors</button>
-                <button onClick={() => update({ regions: allRegions })} style={{ flex: 1, background: C.edge, border: 'none', color: C.text, borderRadius: 3, padding: '3px 0', cursor: 'pointer', fontSize: 11 }}>All</button>
-                <button onClick={() => update({ regions: [] })} style={{ flex: 1, background: C.edge, border: 'none', color: C.dim, borderRadius: 3, padding: '3px 0', cursor: 'pointer', fontSize: 11 }}>None</button>
+            <div style={{ position: 'absolute', top: '115%', left: 0, zIndex: 30, background: 'var(--panel)', backdropFilter: 'blur(16px)', border: `1px solid ${C.edge}`, borderRadius: 12, padding: 10, width: 240, maxHeight: 340, overflowY: 'auto', boxShadow: '0 12px 36px var(--shadow)' }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <button onClick={() => update({ regions: MAJORS })} style={{ flex: 1, background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.text, borderRadius: 6, padding: '5px 0', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Majors</button>
+                <button onClick={() => update({ regions: allRegions })} style={{ flex: 1, background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.text, borderRadius: 6, padding: '5px 0', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>All</button>
+                <button onClick={() => update({ regions: [] })} style={{ flex: 1, background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.dim, borderRadius: 6, padding: '5px 0', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>None</button>
               </div>
               {allRegions.map((cc) => (
-                <label key={cc} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 2px', cursor: 'pointer', color: prefs.regions.includes(cc) ? C.text : C.dim }}>
+                <label key={cc} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 6, cursor: 'pointer', color: prefs.regions.includes(cc) ? C.text : C.dim }}>
                   <input type="checkbox" checked={prefs.regions.includes(cc)}
                     onChange={(e) => update({ regions: e.target.checked ? [...prefs.regions, cc] : prefs.regions.filter((r) => r !== cc) })}
-                    style={{ accentColor: C.actual }} />
-                  <Flag code={cc} /><span style={{ width: 24 }}>{cc}</span>
-                  <span style={{ fontSize: 11 }}>{REGIONS[cc].name}</span>
+                    style={{ accentColor: C.actual, cursor: 'pointer' }} />
+                  <Flag code={cc} size={14} /><span style={{ width: 24, fontWeight: 600 }}>{cc}</span>
+                  <span style={{ fontSize: 11.5 }}>{REGIONS[cc].name}</span>
                 </label>
               ))}
             </div>
@@ -802,22 +940,41 @@ export default function EconomicCalendarPage(
           placeholder={prefs.view === 'calendar' ? 'Filter events…'
             : prefs.view === 'yields' ? 'Filter countries…'
             : prefs.view === 'banks' ? 'Filter banks…' : 'Filter indicators…'}
-          style={{ background: C.bg, color: C.text, border: `1px solid ${C.edge}`, borderRadius: 3, padding: '4px 8px', width: 160, marginLeft: 'auto' }} />
+          style={{ background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`, borderRadius: 8, padding: '5px 12px', width: 170, marginLeft: 'auto', fontSize: 12 }} />
+        <div style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 8px',
+          borderRadius: 6,
+          background: 'var(--hover)',
+          border: `1px solid ${C.edge}`,
+          color: C.up,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          cursor: 'default',
+          userSelect: 'none',
+          whiteSpace: 'nowrap',
+        }} title={`Terminal Timezone: ${terminalTz}`}>
+          <span style={{ fontSize: 11 }}>🕒</span>
+          <span>{terminalTz === 'Asia/Bangkok' ? 'UTC+7' : (terminalTz.split('/').pop() || terminalTz).replace('_', ' ')}</span>
+        </div>
       </div>
 
-      {/* COUNTRIES header strip: every country the feed serves, flag + name,
-          horizontally scrollable; the selected one drives the grid below. */}
+      {/* COUNTRIES header strip */}
       {prefs.view === 'countries' && (
-        <div style={{ display: 'flex', gap: 2, padding: '5px 10px', background: C.panel,
+        <div style={{ display: 'flex', gap: 4, padding: '6px 12px', background: C.panel,
                       borderBottom: `1px solid ${C.edge}`, overflowX: 'auto', flex: 'none' }}>
           {(liveRegions || FALLBACK_COUNTRIES).map((cc) => (
             <button key={cc} onClick={() => update({ country: cc })}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px',
-                       border: `1px solid ${prefs.country === cc ? C.edge : 'transparent'}`,
-                       borderRadius: 2, cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none',
-                       background: prefs.country === cc ? C.active : 'transparent',
-                       color: prefs.country === cc ? C.text : C.dim, fontSize: 11 }}>
-              <Flag code={cc} /> {REGIONS[cc]?.name || cc}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+                       border: `1px solid ${prefs.country === cc ? C.up : C.edge}`,
+                       borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap', flex: 'none',
+                       background: prefs.country === cc ? 'var(--hover)' : 'var(--bg2)',
+                       color: prefs.country === cc ? C.up : C.dim, fontSize: 11.5, fontWeight: prefs.country === cc ? 600 : 500,
+                       transition: 'all 0.15s ease' }}>
+              <Flag code={cc} size={13} /> {REGIONS[cc]?.name || cc}
             </button>
           ))}
         </div>
@@ -828,13 +985,19 @@ export default function EconomicCalendarPage(
             own detail pane; the calendar's `selected` event state is release
             data and does not apply to them. */}
         {prefs.view === 'indicators' && (
-          <IndicatorsView prefs={prefs} update={update} search={search} />
+          <ViewErrorBoundary what="indicators">
+            <IndicatorsView prefs={prefs} update={update} search={search} />
+          </ViewErrorBoundary>
         )}
         {prefs.view === 'yields' && (
-          <YieldsView prefs={prefs} update={update} search={search} />
+          <ViewErrorBoundary what="bond yields">
+            <YieldsView prefs={prefs} update={update} search={search} />
+          </ViewErrorBoundary>
         )}
         {prefs.view === 'banks' && (
-          <BanksView prefs={prefs} update={update} search={search} />
+          <ViewErrorBoundary what="central banks">
+            <BanksView prefs={prefs} update={update} search={search} />
+          </ViewErrorBoundary>
         )}
 
         {/* country monitor, Workspace "Key Economic Indicators" layout:
@@ -909,45 +1072,49 @@ export default function EconomicCalendarPage(
                 <span style={{ textAlign: 'right' }}>Rel.</span>
               </div>
               {shelfOrder.map((cat) => (
-                <div key={cat}>
-                  <div style={{ padding: '8px 12px 4px', background: C.panel,
-                                borderBottom: `1px solid ${C.edge}`, color: C.text,
-                                fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em',
-                                textTransform: 'uppercase' }}>
+                <div key={cat} style={{ marginBottom: 12 }}>
+                  <div style={{ padding: '8px 14px', margin: '6px 10px 4px', background: 'var(--bg2)',
+                                borderRadius: 8, border: `1px solid ${C.edge}`, color: C.up,
+                                fontSize: 11.5, fontWeight: 700, letterSpacing: '.07em',
+                                textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.up }} />
                     {cat}
                   </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {shelves.get(cat)!.map((ind) => {
                     const sel = isSel(ind);
                     const delta = parseNum(ind.latest.actual) != null && ind.prevVal != null
                       ? (parseNum(ind.latest.actual) as number) - ind.prevVal : null;
                     return (
                       <div key={ind.name} onClick={() => open(ind)}
-                        style={{ display: 'grid', gridTemplateColumns: cols, gap: 8,
-                                 alignItems: 'center', padding: '3px 12px', cursor: 'pointer',
-                                 borderBottom: `1px solid ${C.edge}`,
-                                 background: sel ? C.active : 'transparent',
-                                 borderLeft: sel ? `2px solid ${C.actual}` : '2px solid transparent' }}
-                        onMouseEnter={(ev) => { if (!sel) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-                        onMouseLeave={(ev) => { if (!sel) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-                        <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis',
-                                       whiteSpace: 'nowrap' }} title={ind.name}>{ind.name}</span>
+                        style={{ display: 'grid', gridTemplateColumns: cols, gap: 10,
+                                 alignItems: 'center', padding: '7px 14px', margin: '1px 10px', cursor: 'pointer',
+                                 borderRadius: 8,
+                                 border: sel ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                                 background: sel ? 'var(--hover)' : 'transparent',
+                                 transition: 'all 0.15s ease' }}
+                        onMouseEnter={(ev) => { if (!sel) { const el = ev.currentTarget as HTMLElement; el.style.background = 'var(--hover)'; } }}
+                        onMouseLeave={(ev) => { if (!sel) { const el = ev.currentTarget as HTMLElement; el.style.background = 'transparent'; } }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis',
+                                       whiteSpace: 'nowrap', color: C.text }} title={ind.name}>{ind.name}</span>
                         <Spark values={ind.series} />
-                        <span style={{ ...cell, color: C.text, fontSize: 12 }}>
+                        <span style={{ ...cell, color: C.text, fontSize: 13, fontWeight: 600 }}>
                           {fmtVal(parseNum(ind.latest.actual), ind.unit)}
                         </span>
-                        <span style={{ ...cell, color: delta == null || delta === 0 ? C.dim : delta > 0 ? C.up : C.down }}>
+                        <span style={{ ...cell, fontSize: 12.5, fontWeight: 600, color: delta == null || delta === 0 ? C.dim : delta > 0 ? C.up : C.down }}>
                           {delta == null ? '' : `${delta >= 0 ? '+' : ''}${fmtVal(delta, ind.unit)}`}
                         </span>
-                        <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>
+                        <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>
                           {ind.latest.period_hint || ind.latest.date}
                         </span>
-                        <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>
+                        <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>
                           {ind.next ? `${ind.next.date}${ind.next.consensus ? ` (${ind.next.consensus})` : ''}` : ''}
                         </span>
-                        <span style={{ ...cell, color: C.dim }}>{ind.count}</span>
+                        <span style={{ ...cell, color: C.dim, fontSize: 12 }}>{ind.count}</span>
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               ))}
               {indicators.length === 0 && (
@@ -961,7 +1128,7 @@ export default function EconomicCalendarPage(
 
         {/* event table */}
         {prefs.view === 'calendar' && (
-        <div style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+        <div style={{ flex: 1, overflowY: 'auto', minWidth: 0, padding: '6px 0' }}>
           {listState === 'no-key' && (
             <div style={{ padding: 40, color: C.dim, textAlign: 'center', lineHeight: 1.8 }}>
               <div style={{ fontSize: 14, color: C.text }}>Connect your LSE API key to load the economic calendar.</div>
@@ -974,39 +1141,111 @@ export default function EconomicCalendarPage(
             <div style={{ padding: 40, color: C.dim }}>No events match the current filters.</div>
           )}
           {listState === 'ok' && byDay.map(([day, rows]) => (
-            <div key={day}>
-              <div style={{ padding: '5px 12px', background: C.panel, borderTop: `1px solid ${C.edge}`, borderBottom: `1px solid ${C.edge}`, color: C.dim, fontSize: 11, letterSpacing: '.05em', position: 'sticky', top: 0, zIndex: 10 }}>
-                {new Date(day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
+            <div key={day} style={{ marginBottom: 12 }}>
+              <div style={{
+                padding: '8px 16px',
+                margin: '8px 10px 6px',
+                background: 'var(--panel)',
+                backdropFilter: 'blur(12px)',
+                borderRadius: 10,
+                border: `1px solid ${C.edge}`,
+                color: C.up,
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '.06em',
+                textTransform: 'uppercase',
+                position: 'sticky',
+                top: 0,
+                zIndex: 10,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.up, boxShadow: `0 0 10px ${C.up}` }} />
+                <span>{new Date(day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}</span>
+                <span style={{ marginLeft: 'auto', color: C.dim, fontSize: 11, fontWeight: 500, background: 'var(--bg2)', padding: '2px 8px', borderRadius: 12, border: `1px solid ${C.edge}` }}>
+                  {rows.length} events
+                </span>
               </div>
-              {rows.map((e) => {
-                const impact = getEventImpact({ event: e.event, country: e.region_code });
-                const sel = selected?.region === e.region_code &&
-                  selected?.event.toLowerCase() === seriesKey(e.event);
-                return (
-                  <div key={e.id} onClick={() => setSelected({ region: e.region_code, event: baseName(e.event) })}
-                    style={{
-                      display: 'grid', gridTemplateColumns: '64px 60px 1fr 90px 90px 90px', gap: 8,
-                      alignItems: 'center', padding: '4px 12px', cursor: 'pointer',
-                      background: sel ? C.active : 'transparent',
-                      borderLeft: sel ? `2px solid ${C.actual}` : '2px solid transparent',
-                    }}
-                    onMouseEnter={(ev) => { if (!sel) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-                    onMouseLeave={(ev) => { if (!sel) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-                    <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>{e.time || '—'}</span>
-                    <span title={REGIONS[e.region_code]?.name || e.region_code}>
-                      <Flag code={e.region_code} /> <span style={{ color: C.dim }}>{e.region_code}</span>
-                    </span>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      <span title={`${impact} impact`} style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: IMPACT_DOT[impact], marginRight: 7, verticalAlign: 'middle' }} />
-                      {e.event}
-                      {e.period_hint && <span style={{ color: C.dim, marginLeft: 6, fontSize: 10 }}>{e.period_hint}</span>}
-                    </span>
-                    <Num label="A" v={e.actual} revised={!!e.actual_revised} strong />
-                    <Num label="C" v={e.consensus} revised={!!e.consensus_revised} />
-                    <Num label="P" v={e.previous} revised={!!e.previous_revised} />
-                  </div>
-                );
-              })}
+              <div style={{ padding: '0 2px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {rows.map((e) => {
+                  const impact = getEventImpact({ event: e.event, country: e.region_code });
+                  const sel = selected?.region === e.region_code &&
+                    selected?.event.toLowerCase() === seriesKey(e.event);
+                  const aVal = parseNum(e.actual);
+                  const cVal = parseNum(e.consensus ?? e.forecast);
+                  let surpriseColor: string | undefined;
+                  if (aVal != null && cVal != null) {
+                    surpriseColor = aVal >= cVal ? C.up : C.down;
+                  }
+                  return (
+                    <div key={e.id} onClick={() => setSelected({ region: e.region_code, event: baseName(e.event) })}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '72px 76px 74px minmax(200px, 1fr) 88px 88px 88px',
+                        gap: 10,
+                        alignItems: 'center',
+                        padding: '8px 14px',
+                        margin: '2px 10px',
+                        cursor: 'pointer',
+                        borderRadius: 10,
+                        background: sel ? 'var(--hover)' : 'transparent',
+                        border: sel ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(ev) => {
+                        if (!sel) {
+                          const el = ev.currentTarget as HTMLElement;
+                          el.style.background = 'var(--hover)';
+                        }
+                      }}
+                      onMouseLeave={(ev) => {
+                        if (!sel) {
+                          const el = ev.currentTarget as HTMLElement;
+                          el.style.background = 'transparent';
+                        }
+                      }}>
+                      <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 600 }}>
+                        {formatEconEventTime(e, terminalTz)}
+                      </span>
+                      <span title={REGIONS[e.region_code]?.name || e.region_code}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '3px 7px',
+                          borderRadius: 6,
+                          background: 'var(--bg2)',
+                          border: `1px solid ${C.edge}`,
+                          width: 'fit-content',
+                        }}>
+                        <Flag code={e.region_code} size={14} />
+                        <span style={{ color: C.text, fontWeight: 600, fontSize: 11 }}>{e.region_code}</span>
+                      </span>
+                      <ImpactBadge impact={impact} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 500, color: C.text }} title={e.event}>{e.event}</span>
+                        {e.period_hint && (
+                          <span style={{
+                            color: C.dim,
+                            fontSize: 10.5,
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            background: 'var(--bg2)',
+                            border: `1px solid ${C.edge}`,
+                            flexShrink: 0,
+                          }}>
+                            {e.period_hint}
+                          </span>
+                        )}
+                      </span>
+                      <Num label="ACTUAL" v={e.actual} revised={!!e.actual_revised} strong accent={surpriseColor} />
+                      <Num label="CONSENSUS" v={e.consensus} revised={!!e.consensus_revised} />
+                      <Num label="PREVIOUS" v={e.previous} revised={!!e.previous_revised} />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
@@ -1023,13 +1262,49 @@ export default function EconomicCalendarPage(
   );
 }
 
-function Num({ label, v, revised, strong }: { label: string; v: string | null; revised: boolean; strong?: boolean }) {
+function Num({
+  label,
+  v,
+  revised,
+  strong,
+  accent,
+}: {
+  label: string;
+  v: string | null;
+  revised: boolean;
+  strong?: boolean;
+  accent?: string;
+}) {
   return (
-    <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: v ? (strong ? C.text : C.dim) : '#3a3d42' }}>
-      <span style={{ fontSize: 9, color: '#565a61', marginRight: 4 }}>{label}</span>
-      {v || '—'}
-      {revised && <sup title="revised" style={{ color: C.consensus, fontSize: 9 }}> R</sup>}
-    </span>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+        padding: '3px 8px',
+        borderRadius: 7,
+        background: strong && v ? (accent ? `${accent}18` : 'var(--bg2)') : 'transparent',
+        border: strong && v ? `1px solid ${accent ? `${accent}40` : C.edge}` : '1px solid transparent',
+      }}
+    >
+      <span style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '.05em', lineHeight: 1 }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontFamily: 'ui-monospace, Consolas, monospace',
+          fontSize: strong ? 13 : 12,
+          fontWeight: strong ? 700 : 500,
+          fontVariantNumeric: 'tabular-nums',
+          color: accent || (v ? (strong ? C.text : C.textMuted) : C.dim),
+          lineHeight: 1.3,
+        }}
+      >
+        {v || '—'}
+        {revised && <sup title="revised" style={{ color: C.consensus, fontSize: 8, marginLeft: 2 }}>R</sup>}
+      </span>
+    </div>
   );
 }
 
@@ -1043,6 +1318,8 @@ function EventDetail({ selected, history, loading, prefs, update, onClose }: {
   const today = isoDay(new Date());
   const chartRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<echarts.ECharts | null>(null);
+  const isDark = useIsDark();
+  const ecTheme = useMemo(() => getChartColors(isDark), [isDark]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -1091,31 +1368,31 @@ function EventDetail({ selected, history, loading, prefs, update, onClose }: {
         name: 'Actual', type: 'bar', data: actualData.map((v, i) => ({
           value: v,
           itemStyle: prefs.surpriseColors && v != null && cut[i].c != null
-            ? { color: v >= (cut[i].c as number) ? C.up : C.down, borderRadius: [2, 2, 0, 0] }
-            : { color: C.actual, borderRadius: [2, 2, 0, 0] },
+            ? { color: v >= (cut[i].c as number) ? ecTheme.up : ecTheme.down, borderRadius: [4, 4, 0, 0] }
+            : { color: ecTheme.actual, borderRadius: [4, 4, 0, 0] },
         })),
-        barMaxWidth: 14, barCategoryGap: '30%',
+        barMaxWidth: 16, barCategoryGap: '30%',
       });
     } else {
       series.push({
         name: 'Actual', type: 'line', data: actualData, smooth: false,
-        lineStyle: { color: C.actual, width: 2 }, itemStyle: { color: C.actual },
+        lineStyle: { color: ecTheme.actual, width: 2 }, itemStyle: { color: ecTheme.actual },
         symbol: 'circle', symbolSize: 5, showSymbol: cut.length <= 40, connectNulls: true,
-        areaStyle: prefs.chartType === 'area' ? { color: C.actual + '26' } : undefined,
+        areaStyle: prefs.chartType === 'area' ? { color: ecTheme.area } : undefined,
       });
     }
     if (prefs.showConsensus) {
       series.push({
         name: 'Consensus', type: 'line', data: cut.map((r) => r.c), connectNulls: true,
-        lineStyle: { color: C.consensus, width: 2, type: 'dashed' },
-        itemStyle: { color: C.consensus }, symbol: 'circle', symbolSize: 4, showSymbol: false,
+        lineStyle: { color: ecTheme.consensus, width: 2, type: 'dashed' },
+        itemStyle: { color: ecTheme.consensus }, symbol: 'circle', symbolSize: 4, showSymbol: false,
       });
     }
     if (prefs.showPrevious) {
       series.push({
         name: 'Previous', type: 'line', data: cut.map((r) => r.p), connectNulls: true,
-        lineStyle: { color: C.previous, width: 2, type: 'dotted' },
-        itemStyle: { color: C.previous }, symbol: 'circle', symbolSize: 4, showSymbol: false,
+        lineStyle: { color: ecTheme.previous, width: 2, type: 'dotted' },
+        itemStyle: { color: ecTheme.previous }, symbol: 'circle', symbolSize: 4, showSymbol: false,
       });
     }
     return {
@@ -1123,31 +1400,31 @@ function EventDetail({ selected, history, loading, prefs, update, onClose }: {
       animation: false,
       legend: {
         show: series.length > 1, top: 0, right: 8, icon: 'roundRect',
-        itemWidth: 10, itemHeight: 4, textStyle: { color: C.dim, fontSize: 10 },
+        itemWidth: 10, itemHeight: 4, textStyle: { color: ecTheme.dim, fontSize: 10 },
       },
       grid: { left: 8, right: 16, top: 26, bottom: 8, containLabel: true },
       tooltip: {
-        trigger: 'axis', axisPointer: { type: 'cross', label: { backgroundColor: C.edge, color: C.text } },
-        backgroundColor: 'rgba(21,22,25,.96)', borderColor: C.edge,
-        textStyle: { color: C.text, fontSize: 11 },
+        trigger: 'axis', axisPointer: { type: 'cross', label: { backgroundColor: ecTheme.edge, color: ecTheme.text } },
+        backgroundColor: ecTheme.tooltipBg, borderColor: ecTheme.edge,
+        textStyle: { color: ecTheme.text, fontSize: 11 },
         valueFormatter: (v: any) => (v == null ? '—' : fmt(v as number)),
       },
       xAxis: {
         type: 'category', data: x,
-        axisLine: { lineStyle: { color: C.edge } }, axisTick: { show: false },
-        axisLabel: { color: C.dim, fontSize: 10 },
+        axisLine: { lineStyle: { color: ecTheme.edge } }, axisTick: { show: false },
+        axisLabel: { color: ecTheme.dim, fontSize: 10 },
       },
       yAxis: {
         type: 'value', scale: true,
-        axisLabel: { color: C.dim, fontSize: 10, formatter: (v: number) => fmtVal(v, unit) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+        axisLabel: { color: ecTheme.dim, fontSize: 10, formatter: (v: number) => fmtVal(v, unit) },
+        splitLine: { lineStyle: { color: ecTheme.grid, type: 'dashed' } },
       },
       // Inside zoom only (wheel / drag). The slider mini-map bar that used to
       // sit under the chart was cut as visual clutter; don't reintroduce it.
       dataZoom: [{ type: 'inside' }],
       series,
     };
-  }, [cut, unit, prefs.chartType, prefs.showConsensus, prefs.showPrevious, prefs.surpriseColors]);
+  }, [cut, unit, prefs.chartType, prefs.showConsensus, prefs.showPrevious, prefs.surpriseColors, ecTheme]);
 
   useEffect(() => {
     instRef.current?.setOption(option as echarts.EChartsOption, { notMerge: true });
@@ -1156,35 +1433,51 @@ function EventDetail({ selected, history, loading, prefs, update, onClose }: {
   const hasNumbers = rows.some((r) => r.a != null || r.c != null);
 
   return (
-    <div style={{ width: '46%', minWidth: 420, borderLeft: `1px solid ${C.edge}`, display: 'flex', flexDirection: 'column', minHeight: 0, background: C.bg }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: `1px solid ${C.edge}` }}>
-        <Flag code={selected.region} size={15} />
+    <div style={{ width: '46%', minWidth: 440, borderLeft: `1px solid ${C.edge}`, display: 'flex', flexDirection: 'column', minHeight: 0, background: C.bg }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${C.edge}` }}>
+        <Flag code={selected.region} size={18} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.event}</div>
-          <div style={{ color: C.dim, fontSize: 10 }}>{REGIONS[selected.region]?.name || selected.region} · {rows.length} releases since {rows[0]?.date?.slice(0, 4) || '—'}</div>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.event}</div>
+          <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>{REGIONS[selected.region]?.name || selected.region} · {rows.length} releases since {rows[0]?.date?.slice(0, 4) || '—'}</div>
         </div>
-        <button onClick={onClose} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.dim, cursor: 'pointer', fontSize: 15 }}>✕</button>
+        <button onClick={onClose}
+          style={{
+            marginLeft: 'auto', background: 'var(--bg2)', border: `1px solid ${C.edge}`,
+            color: C.dim, cursor: 'pointer', fontSize: 13, width: 28, height: 28, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = 'var(--hover)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = C.dim; e.currentTarget.style.background = 'var(--bg2)'; }}>✕</button>
       </div>
 
-      {/* headline tiles: text wears text tokens, the colored chip carries identity */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: C.edge, borderBottom: `1px solid ${C.edge}` }}>
+      {/* headline tiles: rounded cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${C.edge}` }}>
         {[
           ['Latest actual', latest ? fmtVal(latest.a, unit) : '—', latest?.period_hint || latest?.date || ''],
           ['Consensus', latest ? fmtVal(latest.c, unit) : '—', ''],
           ['Surprise', surprise == null ? '—' : `${surprise >= 0 ? '+' : ''}${fmtVal(surprise, unit)}`,
-            surprise == null ? '' : surprise >= 0 ? 'beat' : 'miss'],
+            surprise == null ? '' : surprise >= 0 ? 'BEAT' : 'MISS'],
           ['Next release', nextRelease?.date || '—', nextRelease?.c != null ? `exp ${fmtVal(nextRelease.c, unit)}` : ''],
         ].map(([t, v, s]) => (
-          <div key={t as string} style={{ background: C.panel, padding: '7px 10px' }}>
-            <div style={{ color: C.dim, fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase' }}>{t}</div>
-            <div style={{ fontSize: 14, fontVariantNumeric: 'tabular-nums', color: t === 'Surprise' && surprise != null ? (surprise >= 0 ? C.up : C.down) : C.text }}>{v}</div>
-            <div style={{ color: C.dim, fontSize: 9 }}>{s}</div>
+          <div key={t as string} style={{
+            background: 'var(--bg2)',
+            border: `1px solid ${C.edge}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+          }}>
+            <div style={{ color: C.dim, fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>{t}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '4px 0 2px',
+                          color: t === 'Surprise' && surprise != null ? (surprise >= 0 ? C.up : C.down) : C.text }}>{v}</div>
+            <div style={{ color: t === 'Surprise' && surprise != null ? (surprise >= 0 ? C.up : C.down) : C.dim, fontSize: 10, fontWeight: 600 }}>{s}</div>
           </div>
         ))}
       </div>
 
       {/* chart customization */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', borderBottom: `1px solid ${C.edge}`, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: `1px solid ${C.edge}`, flexWrap: 'wrap' }}>
         <Seg value={prefs.chartType} onChange={(k) => update({ chartType: k as Prefs['chartType'] })}
           options={[{ key: 'bar', label: 'Bars' }, { key: 'line', label: 'Line' }, { key: 'area', label: 'Area' }]} />
         <Seg value={prefs.chartRange} onChange={(k) => update({ chartRange: k as Prefs['chartRange'] })}
@@ -1196,12 +1489,12 @@ function EventDetail({ selected, history, loading, prefs, update, onClose }: {
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, padding: '4px 4px 0 4px', position: 'relative' }}>
-        {/* The chart div stays mounted through loading/empty states so the
-            echarts instance and its ResizeObserver live exactly once. */}
-        <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
+      <div style={{ flex: 1, minHeight: 0, padding: 10, position: 'relative' }}>
+        <div style={{ width: '100%', height: '100%', background: 'var(--bg2)', border: `1px solid ${C.edge}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
+        </div>
         {(loading || !hasNumbers || cut.length === 0) && (
-          <div style={{ position: 'absolute', inset: 0, padding: 30, color: C.dim, lineHeight: 1.7, background: C.bg }}>
+          <div style={{ position: 'absolute', inset: 10, borderRadius: 10, padding: 30, color: C.dim, lineHeight: 1.7, background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
             {loading ? 'Loading history…'
               : !hasNumbers && history
                 ? 'This event has no numeric prints (speeches and auctions list results without a chartable series). Pick a data release to see its history.'
@@ -1257,6 +1550,34 @@ function MacroState({ state, what }: { state: string; what: string }) {
   return <div style={{ padding: 40, color: C.dim }}>Loading {what}…</div>;
 }
 
+class ViewErrorBoundary extends Component<{ what?: string; children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error(`Error in ${this.props.what || 'view'}:`, error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ flex: 1, padding: 40, color: C.down, textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Unable to display {this.props.what || 'this view'}</div>
+          <div style={{ fontSize: 12, color: C.dim, marginBottom: 16 }}>{this.state.error?.message}</div>
+          <button onClick={() => this.setState({ hasError: false, error: null })}
+            style={{ background: 'var(--bg2)', border: `1px solid ${C.edge}`, color: C.text, borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // A country picker that scales to the catalog's 205 countries: a filterable
 // popup list rather than the calendar's flat checkbox column.
 function CountryPicker({ countries, value, onChange }: {
@@ -1274,28 +1595,28 @@ function CountryPicker({ countries, value, onChange }: {
   return (
     <div style={{ position: 'relative' }}>
       <button onClick={() => setOpen((o) => !o)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.bg,
-                 border: `1px solid ${C.edge}`, color: C.text, borderRadius: 3,
-                 padding: '4px 8px', cursor: 'pointer', minWidth: 150 }}>
-        <Flag code={value} /> {current?.name || value} ▾
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--bg2)',
+                 border: `1px solid ${C.edge}`, color: C.text, borderRadius: 8,
+                 padding: '5px 12px', cursor: 'pointer', minWidth: 160, fontSize: 12, fontWeight: 500 }}>
+        <Flag code={value} size={14} /> {current?.name || value} ▾
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '110%', left: 0, zIndex: 40, background: C.panel,
-                      border: `1px solid ${C.edge}`, borderRadius: 4, padding: 6, width: 260,
-                      maxHeight: 360, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
+        <div style={{ position: 'absolute', top: '115%', left: 0, zIndex: 40, background: 'var(--panel)',
+                      backdropFilter: 'blur(16px)', border: `1px solid ${C.edge}`, borderRadius: 12, padding: 10, width: 270,
+                      maxHeight: 360, overflowY: 'auto', boxShadow: '0 12px 36px var(--shadow)' }}>
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search country…"
-            style={{ width: '100%', background: C.bg, color: C.text, border: `1px solid ${C.edge}`,
-                     borderRadius: 3, padding: '4px 6px', marginBottom: 6 }} />
+            style={{ width: '100%', background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`,
+                     borderRadius: 8, padding: '5px 10px', marginBottom: 8, fontSize: 12 }} />
           {shown.map((c) => (
             <div key={c.code} onClick={() => { onChange(c.code); setOpen(false); setQ(''); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: 'pointer',
-                       color: c.code === value ? C.text : C.dim, background: c.code === value ? C.active : 'transparent' }}>
-              <Flag code={c.code} />
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-              <span style={{ fontSize: 10, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>{c.count}</span>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, cursor: 'pointer',
+                       color: c.code === value ? C.up : C.textMuted, background: c.code === value ? 'var(--hover)' : 'transparent' }}>
+              <Flag code={c.code} size={14} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{c.name}</span>
+              <span style={{ fontSize: 11, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>{c.count}</span>
             </div>
           ))}
-          {shown.length === 0 && <div style={{ padding: 8, color: C.dim }}>No match.</div>}
+          {shown.length === 0 && <div style={{ padding: 8, color: C.dim, fontSize: 12 }}>No match.</div>}
         </div>
       )}
     </div>
@@ -1316,6 +1637,8 @@ function SeriesPane({ title, subtitle, unit, points, loading, error, range, onRa
 }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<echarts.ECharts | null>(null);
+  const isDark = useIsDark();
+  const ecTheme = useMemo(() => getChartColors(isDark), [isDark]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -1351,20 +1674,20 @@ function SeriesPane({ title, subtitle, unit, points, loading, error, range, onRa
       animation: false,
       grid: { left: 8, right: 16, top: 18, bottom: 8, containLabel: true },
       tooltip: {
-        trigger: 'axis', axisPointer: { type: 'cross', label: { backgroundColor: C.edge, color: C.text } },
-        backgroundColor: 'rgba(21,22,25,.96)', borderColor: C.edge,
-        textStyle: { color: C.text, fontSize: 11 },
+        trigger: 'axis', axisPointer: { type: 'cross', label: { backgroundColor: ecTheme.edge, color: ecTheme.text } },
+        backgroundColor: ecTheme.tooltipBg, borderColor: ecTheme.edge,
+        textStyle: { color: ecTheme.text, fontSize: 11 },
         valueFormatter: (v: any) => (v == null ? '—' : fmtMacro(v as number, unit)),
       },
       xAxis: {
         type: 'category', data: cut.map((p) => p.date),
-        axisLine: { lineStyle: { color: C.edge } }, axisTick: { show: false },
-        axisLabel: { color: C.dim, fontSize: 10 },
+        axisLine: { lineStyle: { color: ecTheme.edge } }, axisTick: { show: false },
+        axisLabel: { color: ecTheme.dim, fontSize: 10 },
       },
       yAxis: {
         type: 'value', scale: true,
-        axisLabel: { color: C.dim, fontSize: 10, formatter: (v: number) => fmtMacro(v, unit) },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+        axisLabel: { color: ecTheme.dim, fontSize: 10, formatter: (v: number) => fmtMacro(v, unit) },
+        splitLine: { lineStyle: { color: ecTheme.grid, type: 'dashed' } },
       },
       dataZoom: [{ type: 'inside' }],
       series: [{
@@ -1373,31 +1696,35 @@ function SeriesPane({ title, subtitle, unit, points, loading, error, range, onRa
         // stepped line is what that actually is, and it stops a step change
         // reading as a gradual slope.
         step: isPct(unit) && cut.length < 400 ? 'end' : undefined,
-        lineStyle: { color: C.actual, width: 1.8 }, itemStyle: { color: C.actual },
+        lineStyle: { color: ecTheme.actual, width: 1.8 }, itemStyle: { color: ecTheme.actual },
         symbol: 'circle', symbolSize: 4, showSymbol: cut.length <= 60,
-        areaStyle: { color: C.actual + '1f' },
+        areaStyle: { color: ecTheme.area },
       }],
     };
     instRef.current?.setOption(option as echarts.EChartsOption, { notMerge: true });
-  }, [cut, unit, title]);
+  }, [cut, unit, title, ecTheme]);
 
   return (
-    <div style={{ width: '44%', minWidth: 400, borderLeft: `1px solid ${C.edge}`, display: 'flex',
+    <div style={{ width: '44%', minWidth: 420, borderLeft: `1px solid ${C.edge}`, display: 'flex',
                   flexDirection: 'column', minHeight: 0, background: C.bg }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: `1px solid ${C.edge}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${C.edge}` }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-          <div style={{ color: C.dim, fontSize: 10 }}>{subtitle}</div>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+          <div style={{ color: C.dim, fontSize: 11, marginTop: 2 }}>{subtitle}</div>
         </div>
-        <button onClick={onClose} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: C.dim, cursor: 'pointer', fontSize: 15 }}>✕</button>
+        <button onClick={onClose}
+          style={{
+            marginLeft: 'auto', background: 'var(--bg2)', border: `1px solid ${C.edge}`,
+            color: C.dim, cursor: 'pointer', fontSize: 13, width: 28, height: 28, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = C.text; e.currentTarget.style.background = 'var(--hover)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = C.dim; e.currentTarget.style.background = 'var(--bg2)'; }}>✕</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 1, background: C.edge, borderBottom: `1px solid ${C.edge}` }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${C.edge}` }}>
         {[
           ['Latest', stats ? fmtMacro(stats.last.value, unit) : '—', stats?.last.date || ''],
-          // pp, not %: a policy rate going 0.50 -> 3.75 moved 3.25 percentage
-          // POINTS (it rose 650% in percentage terms), and "+3.25%" for that
-          // is the classic misread.
           ['Change', stats
             ? (isPct(unit)
                 ? `${stats.chg >= 0 ? '+' : ''}${stats.chg.toFixed(2)}pp`
@@ -1407,26 +1734,36 @@ function SeriesPane({ title, subtitle, unit, points, loading, error, range, onRa
           ['Range low', stats ? fmtMacro(stats.min, unit) : '—', ''],
           ['Range high', stats ? fmtMacro(stats.max, unit) : '—', ''],
         ].map(([t, v, s]) => (
-          <div key={t as string} style={{ background: C.panel, padding: '7px 10px' }}>
-            <div style={{ color: C.dim, fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase' }}>{t}</div>
-            <div style={{ fontSize: 14, fontVariantNumeric: 'tabular-nums',
+          <div key={t as string} style={{
+            background: 'var(--bg2)',
+            border: `1px solid ${C.edge}`,
+            borderRadius: 8,
+            padding: '8px 10px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+          }}>
+            <div style={{ color: C.dim, fontSize: 9.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase' }}>{t}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', margin: '4px 0 2px',
                           color: t === 'Change' && stats ? (stats.chg >= 0 ? C.up : C.down) : C.text }}>{v}</div>
-            <div style={{ color: C.dim, fontSize: 9 }}>{s}</div>
+            <div style={{ color: C.dim, fontSize: 10 }}>{s}</div>
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', borderBottom: `1px solid ${C.edge}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: `1px solid ${C.edge}` }}>
         <Seg value={range} onChange={(k) => onRange(k as Prefs['macroRange'])}
           options={[{ key: '1y', label: '1Y' }, { key: '5y', label: '5Y' },
                     { key: '10y', label: '10Y' }, { key: 'all', label: 'All' }]} />
-        {unit && <span style={{ color: C.dim, fontSize: 10 }}>{unit}</span>}
+        {unit && <span style={{ color: C.dim, fontSize: 11, background: 'var(--bg2)', padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.edge}` }}>{unit}</span>}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, padding: '4px 4px 0 4px', position: 'relative' }}>
-        <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
+      <div style={{ flex: 1, minHeight: 0, padding: 10, position: 'relative' }}>
+        <div style={{ width: '100%', height: '100%', background: 'var(--bg2)', border: `1px solid ${C.edge}`, borderRadius: 10, overflow: 'hidden' }}>
+          <div ref={chartRef} style={{ width: '100%', height: '100%' }} />
+        </div>
         {(loading || error || cut.length === 0) && (
-          <div style={{ position: 'absolute', inset: 0, padding: 30, color: error ? C.down : C.dim, lineHeight: 1.7, background: C.bg }}>
+          <div style={{ position: 'absolute', inset: 10, borderRadius: 10, padding: 30, color: error ? C.down : C.dim, lineHeight: 1.7, background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
             {loading ? 'Loading history…'
               : error ? 'This series could not be loaded.'
               : 'No observations inside this range. Widen it to All.'}
@@ -1525,7 +1862,7 @@ function IndicatorsView({ prefs, update, search }: MacroViewProps) {
           <CountryPicker countries={countries} value={prefs.indCountry}
             onChange={(code) => { update({ indCountry: code, indCategory: '' }); setSel(null); }} />
           <select value={prefs.indCategory} onChange={(e) => update({ indCategory: e.target.value })}
-            style={{ background: C.bg, color: C.text, border: `1px solid ${C.edge}`, borderRadius: 3, padding: '4px 8px', maxWidth: 260 }}>
+            style={{ background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`, borderRadius: 8, padding: '5px 10px', fontSize: 12, maxWidth: 260 }}>
             <option value="">All categories ({categories.length})</option>
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -1534,10 +1871,10 @@ function IndicatorsView({ prefs, update, search }: MacroViewProps) {
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', minWidth: minW,
-                      padding: '5px 12px', position: 'sticky', top: 0, zIndex: 10,
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', minWidth: minW,
+                      padding: '8px 14px', position: 'sticky', top: 0, zIndex: 10,
                       background: C.bg, borderBottom: `1px solid ${C.edge}`,
-                      color: C.dim, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                      color: C.dim, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase' }}>
           {/* Source, not category: for most countries the category is 1:1 with
               the series name (338 categories over 338 US series), so it read
               as the same column twice. The category is still the filter. */}
@@ -1549,28 +1886,31 @@ function IndicatorsView({ prefs, update, search }: MacroViewProps) {
           <span style={{ textAlign: 'right' }}>Obs</span>
         </div>
 
+        <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
         {mine.map((r) => {
           const on = sel?.symbol === r.symbol;
           return (
             <div key={r.symbol} onClick={() => setSel(r)} title={`${r.category} · ${r.symbol}`}
-              style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', minWidth: minW,
-                       padding: '3px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.edge}`,
-                       background: on ? C.active : 'transparent',
-                       borderLeft: on ? `2px solid ${C.actual}` : '2px solid transparent' }}
-              onMouseEnter={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-              onMouseLeave={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-              <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortName(r)}</span>
-              <span style={{ fontSize: 11, color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', minWidth: minW,
+                       padding: '7px 14px', margin: '1px 8px', cursor: 'pointer', borderRadius: 8,
+                       border: on ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                       background: on ? 'var(--hover)' : 'transparent',
+                       transition: 'all 0.15s ease' }}
+              onMouseEnter={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'var(--hover)'; } }}
+              onMouseLeave={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'transparent'; } }}>
+              <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text }}>{shortName(r)}</span>
+              <span style={{ fontSize: 11.5, color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 title={r.source}>{r.source}</span>
-              <span style={{ ...cell, color: C.text, fontSize: 12 }}>{fmtMacro(r.last_value, r.unit)}</span>
-              <span style={{ ...cell, color: !r.change_1y ? C.dim : r.change_1y > 0 ? C.up : C.down }}
+              <span style={{ ...cell, color: C.text, fontSize: 13, fontWeight: 600 }}>{fmtMacro(r.last_value, r.unit)}</span>
+              <span style={{ ...cell, fontSize: 12.5, fontWeight: 600, color: !r.change_1y ? C.dim : r.change_1y > 0 ? C.up : C.down }}
                 title={fmtChange1y(r.change_1y).title}>{fmtChange1y(r.change_1y).text}</span>
-              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>{r.last}</span>
-              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>{r.frequency}</span>
-              <span style={{ ...cell, color: C.dim }}>{r.obs ?? ''}</span>
+              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>{r.last}</span>
+              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>{r.frequency}</span>
+              <span style={{ ...cell, color: C.dim, fontSize: 12 }}>{r.obs ?? ''}</span>
             </div>
           );
         })}
+        </div>
         {mine.length === 0 && <div style={{ padding: 30, color: C.dim }}>No series match the filter.</div>}
       </div>
 
@@ -1592,6 +1932,8 @@ function IndicatorsView({ prefs, update, search }: MacroViewProps) {
 // per tenor, so a country switch fetches its tenors in parallel; the board
 // needs none (the catalog carries each symbol's last print and its changes).
 function YieldsView({ prefs, update, search }: MacroViewProps) {
+  const isDark = useIsDark();
+  const ecTheme = useMemo(() => getChartColors(isDark), [isDark]);
   const { rows, state } = useMacroCatalog();
   const [mode, setMode] = useState<'curve' | 'board'>('curve');
   const [boardTenor, setBoardTenor] = useState('10Y');
@@ -1628,10 +1970,29 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
     return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [bonds]);
 
+  const currentCountry = useMemo(() => {
+    if (!countries.length) return prefs.bondCountry || 'US';
+    if (countries.some((c) => c.code === prefs.bondCountry)) return prefs.bondCountry;
+    return countries.some((c) => c.code === 'US') ? 'US' : countries[0].code;
+  }, [countries, prefs.bondCountry]);
+
+  // Detail for the AI screen map (see EconomicCalendarPage's econ publisher).
+  useEffect(() => {
+    const w = window as unknown as { __lseAiIslands?: Record<string, unknown> };
+    (w.__lseAiIslands ||= {}).econ_detail = {
+      view: 'bond yields', mode,
+      country: currentCountry,
+      board_tenor: mode === 'board' ? boardTenor : null,
+      bond_series_in_catalog: bonds.length,
+      open_series: sel ? `${sel.country_name} ${sel.name}` : null,
+    };
+    return () => { if (w.__lseAiIslands) delete w.__lseAiIslands.econ_detail; };
+  }, [mode, currentCountry, boardTenor, bonds.length, sel]);
+
   const tenors = useMemo(() => bonds
-    .filter((r) => r.country === prefs.bondCountry)
+    .filter((r) => r.country === currentCountry)
     .map((r) => ({ row: r, tenor: tenorOf(r) }))
-    .sort((a, b) => tenorDays(a.tenor) - tenorDays(b.tenor)), [bonds, prefs.bondCountry]);
+    .sort((a, b) => tenorDays(a.tenor) - tenorDays(b.tenor)), [bonds, currentCountry]);
 
   // Curve history: one request per tenor of the selected country (~15 for the
   // deepest curve, ~2 KB each). Deliberately not one bulk call: the vault's
@@ -1655,8 +2016,6 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
     return () => { dead = true; };
   }, [mode, tenors, hist]);
 
-  if (state !== 'ok') return <div style={{ flex: 1 }}><MacroState state={state} what="government bond yields" /></div>;
-
   // Value on or before a date, so "a month ago" means the last print that
   // existed then (bond series skip holidays and some tenors print thinly).
   const asOf = (pts: SeriesPoint[] | undefined, day: string): number | null => {
@@ -1668,7 +2027,7 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
   const monthAgo = isoDay(addDays(new Date(), -30));
   const yearAgo = isoDay(addDays(new Date(), -365));
 
-  const curve = tenors.map(({ row, tenor }) => {
+  const curve = useMemo(() => tenors.map(({ row, tenor }) => {
     const pts = hist[row.symbol];
     const last = pts?.length ? pts[pts.length - 1] : null;
     const prev = pts && pts.length > 1 ? pts[pts.length - 2].value : null;
@@ -1681,7 +2040,8 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
       mAgo: asOf(pts, monthAgo), yAgo: asOf(pts, yearAgo),
       spark: (pts || []).map((p) => p.value),
     };
-  });
+  }), [tenors, hist, monthAgo, yearAgo]);
+
   // The chart is the NOMINAL curve. Inflation-linked tenors (TIPS and the
   // other linkers) quote a REAL yield ~2pp lower, so leaving them in sequence
   // made the line saw-tooth at every linked maturity; they plot as their own
@@ -1689,40 +2049,41 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
   // breakeven (nominal minus real at a maturity) becomes readable. The table
   // below still lists every tenor.
   const isLinker = (t: string) => t.includes(' ');
-  const curveAxis = curve.filter((c) => !isLinker(c.tenor));
-  const realAt = (tenor: string) =>
-    curve.find((c) => isLinker(c.tenor) && c.tenor.split(' ')[0] === tenor)?.now ?? null;
-  const hasReal = curve.some((c) => isLinker(c.tenor));
+  const curveAxis = useMemo(() => curve.filter((c) => !isLinker(c.tenor)), [curve]);
+  const hasReal = useMemo(() => curve.some((c) => isLinker(c.tenor)), [curve]);
+  const realAt = useCallback((tenor: string) =>
+    curve.find((c) => isLinker(c.tenor) && c.tenor.split(' ')[0] === tenor)?.now ?? null, [curve]);
+
   // The comparison curves only make sense over the same tenors that have a
   // reading then; a tenor missing history drops out of that line, not the chart.
-  const curveOption = {
+  const curveOption = useMemo(() => ({
     backgroundColor: 'transparent', animation: false,
     legend: { top: 0, right: 8, icon: 'roundRect', itemWidth: 10, itemHeight: 4,
-              textStyle: { color: C.dim, fontSize: 10 } },
+              textStyle: { color: ecTheme.dim, fontSize: 10 } },
     grid: { left: 8, right: 16, top: 26, bottom: 6, containLabel: true },
-    tooltip: { trigger: 'axis', backgroundColor: 'rgba(21,22,25,.96)', borderColor: C.edge,
-               textStyle: { color: C.text, fontSize: 11 },
+    tooltip: { trigger: 'axis', backgroundColor: ecTheme.tooltipBg, borderColor: ecTheme.edge,
+               textStyle: { color: ecTheme.text, fontSize: 11 },
                valueFormatter: (v: any) => (v == null ? '—' : `${Number(v).toFixed(3)}%`) },
     xAxis: { type: 'category', data: curveAxis.map((c) => c.tenor),
-             axisLine: { lineStyle: { color: C.edge } }, axisTick: { show: false },
-             axisLabel: { color: C.dim, fontSize: 10 } },
+             axisLine: { lineStyle: { color: ecTheme.edge } }, axisTick: { show: false },
+             axisLabel: { color: ecTheme.dim, fontSize: 10 } },
     yAxis: { type: 'value', scale: true,
-             axisLabel: { color: C.dim, fontSize: 10, formatter: (v: number) => `${v.toFixed(2)}%` },
-             splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } } },
+             axisLabel: { color: ecTheme.dim, fontSize: 10, formatter: (v: number) => `${v.toFixed(2)}%` },
+             splitLine: { lineStyle: { color: ecTheme.grid, type: 'dashed' } } },
     series: [
       { name: 'Latest', type: 'line', data: curveAxis.map((c) => c.now), connectNulls: true,
-        lineStyle: { color: C.actual, width: 2 }, itemStyle: { color: C.actual }, symbol: 'circle', symbolSize: 5 },
+        lineStyle: { color: ecTheme.actual, width: 2 }, itemStyle: { color: ecTheme.actual }, symbol: 'circle', symbolSize: 5 },
       { name: '1M ago', type: 'line', data: curveAxis.map((c) => c.mAgo), connectNulls: true,
-        lineStyle: { color: C.consensus, width: 1.5, type: 'dashed' }, itemStyle: { color: C.consensus }, symbol: 'none' },
+        lineStyle: { color: ecTheme.consensus, width: 1.5, type: 'dashed' }, itemStyle: { color: ecTheme.consensus }, symbol: 'none' },
       { name: '1Y ago', type: 'line', data: curveAxis.map((c) => c.yAgo), connectNulls: true,
-        lineStyle: { color: C.previous, width: 1.5, type: 'dotted' }, itemStyle: { color: C.previous }, symbol: 'none' },
+        lineStyle: { color: ecTheme.previous, width: 1.5, type: 'dotted' }, itemStyle: { color: ecTheme.previous }, symbol: 'none' },
       ...(hasReal ? [{
         name: 'Real (linked)', type: 'line', data: curveAxis.map((c) => realAt(c.tenor)),
-        connectNulls: true, lineStyle: { color: C.up, width: 1.5 }, itemStyle: { color: C.up },
+        connectNulls: true, lineStyle: { color: ecTheme.up, width: 1.5 }, itemStyle: { color: ecTheme.up },
         symbol: 'circle', symbolSize: 4,
       }] : []),
     ],
-  };
+  }), [curveAxis, hasReal, ecTheme, realAt]);
 
   // Cross-country board for one tenor, straight off the catalog.
   const q = search.trim().toLowerCase();
@@ -1730,7 +2091,10 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
     .filter((r) => tenorOf(r) === boardTenor)
     .filter((r) => !q || (r.country_name || '').toLowerCase().includes(q))
     .sort((a, b) => (b.last_value ?? -99) - (a.last_value ?? -99));
-  const boardTenors = [...new Set(bonds.map(tenorOf))].sort((a, b) => tenorDays(a) - tenorDays(b));
+  const boardTenors = useMemo(() => [...new Set(bonds.map(tenorOf))].sort((a, b) => tenorDays(a) - tenorDays(b)), [bonds]);
+
+  // Safe early exit AFTER all hooks have executed unconditionally
+  if (state !== 'ok') return <div style={{ flex: 1 }}><MacroState state={state} what="government bond yields" /></div>;
 
   const cell = { fontVariantNumeric: 'tabular-nums' as const, textAlign: 'right' as const,
                  fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11.5 };
@@ -1754,11 +2118,11 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
           <Seg value={mode} onChange={(k) => { setMode(k as 'curve' | 'board'); setSel(null); }}
             options={[{ key: 'curve', label: 'Curve' }, { key: 'board', label: 'Cross-country' }]} />
           {mode === 'curve' ? (
-            <CountryPicker countries={countries} value={prefs.bondCountry}
+            <CountryPicker countries={countries} value={currentCountry}
               onChange={(code) => { update({ bondCountry: code }); setSel(null); }} />
           ) : (
             <select value={boardTenor} onChange={(e) => setBoardTenor(e.target.value)}
-              style={{ background: C.bg, color: C.text, border: `1px solid ${C.edge}`, borderRadius: 3, padding: '4px 8px' }}>
+              style={{ background: 'var(--bg2)', color: C.text, border: `1px solid ${C.edge}`, borderRadius: 8, padding: '5px 10px', fontSize: 12 }}>
               {boardTenors.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           )}
@@ -1771,15 +2135,15 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
 
         {mode === 'curve' && (
           <>
-            <div style={{ padding: '0 12px 8px' }}>
-              <div style={{ background: C.panel, border: `1px solid ${C.edge}` }}>
+            <div style={{ padding: '4px 12px 10px' }}>
+              <div style={{ background: 'var(--bg2)', border: `1px solid ${C.edge}`, borderRadius: 12, padding: 10, overflow: 'hidden' }}>
                 <CurveChart option={curveOption} />
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center',
-                          padding: '5px 12px', position: 'sticky', top: 0, zIndex: 10,
+            <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center',
+                          padding: '8px 14px', position: 'sticky', top: 0, zIndex: 10,
                           background: C.bg, borderBottom: `1px solid ${C.edge}`,
-                          color: C.dim, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                          color: C.dim, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase' }}>
               <span>Tenor</span><span>Trend (1Y)</span>
               <span style={{ textAlign: 'right' }}>Yield</span>
               <span style={{ textAlign: 'right' }}>1D</span>
@@ -1787,66 +2151,70 @@ function YieldsView({ prefs, update, search }: MacroViewProps) {
               <span style={{ textAlign: 'right' }}>1Y</span>
               <span style={{ textAlign: 'right' }}>As of</span>
             </div>
+            <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {curve.map((c) => {
               const on = sel?.symbol === c.row.symbol;
               return (
                 <div key={c.row.symbol} onClick={() => setSel(c.row)}
-                  style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', minWidth: minW,
-                           padding: '3px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.edge}`,
-                           background: on ? C.active : 'transparent',
-                           borderLeft: on ? `2px solid ${C.actual}` : '2px solid transparent' }}
-                  onMouseEnter={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-                  onMouseLeave={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-                  <span style={{ fontSize: 11.5 }}>{c.tenor}</span>
+                  style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', minWidth: minW,
+                           padding: '7px 14px', margin: '1px 8px', cursor: 'pointer', borderRadius: 8,
+                           border: on ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                           background: on ? 'var(--hover)' : 'transparent',
+                           transition: 'all 0.15s ease' }}
+                  onMouseEnter={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'var(--hover)'; } }}
+                  onMouseLeave={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'transparent'; } }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{c.tenor}</span>
                   {c.spark.length > 1 ? <Spark values={c.spark} /> : <span />}
-                  <span style={{ ...cell, color: C.text, fontSize: 12 }}>{c.now == null ? '—' : `${c.now.toFixed(3)}%`}</span>
+                  <span style={{ ...cell, color: C.text, fontSize: 13, fontWeight: 600 }}>{c.now == null ? '—' : `${c.now.toFixed(3)}%`}</span>
                   {chg(c.d1)}{chg(c.m1)}{chg(c.y1)}
-                  <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>{c.date}</span>
+                  <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>{c.date}</span>
                 </div>
               );
             })}
+            </div>
             {tenors.length === 0 && <div style={{ padding: 30, color: C.dim }}>No yield curve for this country.</div>}
           </>
         )}
 
         {mode === 'board' && (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '170px 110px 90px 90px 110px', gap: 8, alignItems: 'center', minWidth: 600,
-                          padding: '5px 12px', position: 'sticky', top: 0, zIndex: 10,
+            <div style={{ display: 'grid', gridTemplateColumns: '180px 110px 90px 90px 110px', gap: 10, alignItems: 'center', minWidth: 600,
+                          padding: '8px 14px', position: 'sticky', top: 0, zIndex: 10,
                           background: C.bg, borderBottom: `1px solid ${C.edge}`,
-                          color: C.dim, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                          color: C.dim, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase' }}>
               <span>Country</span>
               <span style={{ textAlign: 'right' }}>Yield</span>
               <span style={{ textAlign: 'right' }}>1D %</span>
               <span style={{ textAlign: 'right' }}>1Y %</span>
               <span style={{ textAlign: 'right' }}>As of</span>
             </div>
+            <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
             {board.map((r) => {
               const on = sel?.symbol === r.symbol;
               return (
                 <div key={r.symbol} onClick={() => setSel(r)}
-                  style={{ display: 'grid', gridTemplateColumns: '170px 110px 90px 90px 110px', gap: 8, alignItems: 'center', minWidth: 600,
-                           padding: '3px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.edge}`,
-                           background: on ? C.active : 'transparent',
-                           borderLeft: on ? `2px solid ${C.actual}` : '2px solid transparent' }}
-                  onMouseEnter={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-                  onMouseLeave={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-                  <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <Flag code={r.country} /> {r.country_name}
+                  style={{ display: 'grid', gridTemplateColumns: '180px 110px 90px 90px 110px', gap: 10, alignItems: 'center', minWidth: 600,
+                           padding: '7px 14px', margin: '1px 8px', cursor: 'pointer', borderRadius: 8,
+                           border: on ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                           background: on ? 'var(--hover)' : 'transparent',
+                           transition: 'all 0.15s ease' }}
+                  onMouseEnter={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'var(--hover)'; } }}
+                  onMouseLeave={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'transparent'; } }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, color: C.text }}>
+                    <Flag code={r.country} size={14} /> {r.country_name}
                   </span>
-                  <span style={{ ...cell, color: C.text, fontSize: 12 }}>{r.last_value == null ? '—' : `${r.last_value.toFixed(3)}%`}</span>
-                  {/* The catalog's changes are percent moves in the yield, not
-                      basis points, so they are labelled as percent here. */}
-                  <span style={{ ...cell, color: !r.change_pct ? C.dim : r.change_pct > 0 ? C.up : C.down }}>
+                  <span style={{ ...cell, color: C.text, fontSize: 13, fontWeight: 600 }}>{r.last_value == null ? '—' : `${r.last_value.toFixed(3)}%`}</span>
+                  <span style={{ ...cell, fontSize: 12.5, fontWeight: 600, color: !r.change_pct ? C.dim : r.change_pct > 0 ? C.up : C.down }}>
                     {r.change_pct == null ? '' : `${r.change_pct > 0 ? '+' : ''}${r.change_pct.toFixed(2)}%`}
                   </span>
-                  <span style={{ ...cell, color: !r.change_1y ? C.dim : r.change_1y > 0 ? C.up : C.down }}>
+                  <span style={{ ...cell, fontSize: 12.5, fontWeight: 600, color: !r.change_1y ? C.dim : r.change_1y > 0 ? C.up : C.down }}>
                     {r.change_1y == null ? '' : `${r.change_1y > 0 ? '+' : ''}${r.change_1y.toFixed(1)}%`}
                   </span>
-                  <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>{r.last}</span>
+                  <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>{r.last}</span>
                 </div>
               );
             })}
+            </div>
             {board.length === 0 && <div style={{ padding: 30, color: C.dim }}>No country carries this tenor.</div>}
           </>
         )}
@@ -1870,13 +2238,18 @@ function CurveChart({ option }: { option: any }) {
   const inst = useRef<echarts.ECharts | null>(null);
   useEffect(() => {
     if (!ref.current) return;
-    const i = echarts.init(ref.current);
+    const i = echarts.getInstanceByDom(ref.current) || echarts.init(ref.current);
     inst.current = i;
+    if (option) i.setOption(option, { notMerge: true });
     const ro = new ResizeObserver(() => i.resize());
     ro.observe(ref.current);
     return () => { ro.disconnect(); i.dispose(); inst.current = null; };
   }, []);
-  useEffect(() => { inst.current?.setOption(option, { notMerge: true }); }, [option]);
+  useEffect(() => {
+    if (inst.current && option) {
+      inst.current.setOption(option, { notMerge: true });
+    }
+  }, [option]);
   return <div ref={ref} style={{ width: '100%', height: 230 }} />;
 }
 
@@ -1982,10 +2355,10 @@ function BanksView({ prefs, update, search }: MacroViewProps) {
           </span>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', minWidth: minW,
-                      padding: '5px 12px', position: 'sticky', top: 0, zIndex: 10,
+        <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', minWidth: minW,
+                      padding: '8px 14px', position: 'sticky', top: 0, zIndex: 10,
                       background: C.bg, borderBottom: `1px solid ${C.edge}`,
-                      color: C.dim, fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                      color: C.dim, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase' }}>
           <span>Central bank</span><span>Country</span>
           <span style={{ textAlign: 'right' }}>Policy rate</span>
           <span style={{ textAlign: 'right' }}>Inflation</span>
@@ -1994,6 +2367,7 @@ function BanksView({ prefs, update, search }: MacroViewProps) {
           <span style={{ textAlign: 'right' }}>As of</span>
         </div>
 
+        <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 2 }}>
         {banks.map((b) => {
           const on = sel?.symbol === b.rate.symbol;
           // Real rate: the policy rate minus headline inflation, the one
@@ -2002,28 +2376,26 @@ function BanksView({ prefs, update, search }: MacroViewProps) {
           return (
             <div key={b.rate.symbol} onClick={() => setSel(b.rate)}
               title={b.sheet?.unit ? `Balance sheet in ${b.sheet.unit}` : undefined}
-              style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', minWidth: minW,
-                       padding: '3px 12px', cursor: 'pointer', borderBottom: `1px solid ${C.edge}`,
-                       background: on ? C.active : 'transparent',
-                       borderLeft: on ? `2px solid ${C.actual}` : '2px solid transparent' }}
-              onMouseEnter={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = C.edge; }}
-              onMouseLeave={(ev) => { if (!on) (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
-              <span style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.bank}</span>
-              <span style={{ fontSize: 11, color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <Flag code={b.rate.country} /> {b.rate.country_name}
+              style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', minWidth: minW,
+                       padding: '7px 14px', margin: '1px 8px', cursor: 'pointer', borderRadius: 8,
+                       border: on ? `1px solid ${C.up}` : `1px solid ${C.edge}`,
+                       background: on ? 'var(--hover)' : 'transparent',
+                       transition: 'all 0.15s ease' }}
+              onMouseEnter={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'var(--hover)'; } }}
+              onMouseLeave={(ev) => { if (!on) { const el = ev.currentTarget as HTMLElement; el.style.background = 'transparent'; } }}>
+              <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: C.text }}>{b.bank}</span>
+              <span style={{ fontSize: 12, color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Flag code={b.rate.country} size={14} /> {b.rate.country_name}
               </span>
-              <span style={{ ...cell, color: C.text, fontSize: 12 }}>{fmtMacro(b.rate.last_value, b.rate.unit)}</span>
-              <span style={{ ...cell, color: C.dim }}>{b.cpi ? fmtMacro(b.cpi.last_value, b.cpi.unit) : ''}</span>
-              {/* Balance sheet and money supply are quoted in each country's
-                  own currency and scale (USD Million, GBP Million, ...), so the
-                  unit rides on the cell rather than the column header, which
-                  cannot be right for every row. */}
-              <span style={{ ...cell, color: C.dim }} title={b.sheet?.unit || ''}>{b.sheet ? fmtMacro(b.sheet.last_value, b.sheet.unit) : ''}</span>
-              <span style={{ ...cell, color: C.dim }} title={b.m2?.unit || ''}>{b.m2 ? fmtMacro(b.m2.last_value, b.m2.unit) : ''}</span>
-              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit' }}>{b.rate.last}</span>
+              <span style={{ ...cell, color: C.text, fontSize: 13, fontWeight: 600 }}>{fmtMacro(b.rate.last_value, b.rate.unit)}</span>
+              <span style={{ ...cell, color: C.dim, fontSize: 12 }}>{b.cpi ? fmtMacro(b.cpi.last_value, b.cpi.unit) : ''}</span>
+              <span style={{ ...cell, color: C.dim, fontSize: 12 }} title={b.sheet?.unit || ''}>{b.sheet ? fmtMacro(b.sheet.last_value, b.sheet.unit) : ''}</span>
+              <span style={{ ...cell, color: C.dim, fontSize: 12 }} title={b.m2?.unit || ''}>{b.m2 ? fmtMacro(b.m2.last_value, b.m2.unit) : ''}</span>
+              <span style={{ ...cell, color: C.dim, fontFamily: 'inherit', fontSize: 12 }}>{b.rate.last}</span>
             </div>
           );
         })}
+        </div>
         {banks.length === 0 && <div style={{ padding: 30, color: C.dim }}>No central bank matches the filter.</div>}
       </div>
 
@@ -2068,7 +2440,7 @@ function BanksView({ prefs, update, search }: MacroViewProps) {
                 .map((r) => (
                   <div key={r.symbol} onClick={() => setSel(r)}
                     style={{ display: 'flex', gap: 8, padding: '2px 12px', fontSize: 11, cursor: 'pointer' }}
-                    onMouseEnter={(ev) => { (ev.currentTarget as HTMLElement).style.background = C.edge; }}
+                    onMouseEnter={(ev) => { (ev.currentTarget as HTMLElement).style.background = 'var(--hover)'; }}
                     onMouseLeave={(ev) => { (ev.currentTarget as HTMLElement).style.background = 'transparent'; }}>
                     <span style={{ color: C.dim, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.category}</span>
                     <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMacro(r.last_value, r.unit)}</span>
