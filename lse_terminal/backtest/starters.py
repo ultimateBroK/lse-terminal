@@ -43,7 +43,7 @@ import numpy as np
 
 target_vol = float(params.get("target_vol", 0.15))  # annualised vol target
 lev_cap = float(params.get("lev_cap", 3.0))         # max notional / capital
-CAPITAL = 100_000.0
+CAPITAL = 10_000.0
 
 # Horizons below are in DAYS, converted to bars with this dataset's own
 # spacing. A parameter written in bars silently means something different on
@@ -267,7 +267,7 @@ mom_k = float(params.get("mom_k", 0.5))             # deadband, in vol units
 target_vol = float(params.get("target_vol", 0.15))  # annualised vol target
 lev_cap = float(params.get("lev_cap", 3.0))
 allow_short = bool(params.get("allow_short", True))
-CAPITAL = 100_000.0
+CAPITAL = 10_000.0
 
 # Horizons below are in DAYS, converted to bars with this dataset's own
 # spacing. A parameter written in bars silently means something different on
@@ -455,7 +455,7 @@ import numpy as np
 target_vol = float(params.get("target_vol", 0.12))  # annualised vol target
 lev_cap = float(params.get("lev_cap", 2.5))
 min_votes = int(params.get("min_votes", 3))         # 3 = unanimous
-CAPITAL = 100_000.0
+CAPITAL = 10_000.0
 
 # Horizons below are in DAYS, converted to bars with this dataset's own
 # spacing. A parameter written in bars silently means something different on
@@ -639,7 +639,7 @@ import numpy as np
 
 z_max = float(params.get("z_max", 1.5))       # do not buy a blow-off top
 eq_n = int(params.get("eq_n", 10))            # kill-switch MA, closed trades
-CAPITAL = 100_000.0
+CAPITAL = 10_000.0
 
 # Horizons below are in DAYS, converted to bars with this dataset's own
 # spacing. A parameter written in bars silently means something different on

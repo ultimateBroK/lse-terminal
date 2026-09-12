@@ -215,7 +215,7 @@ import numpy as np
 
 target_vol = float(params.get("target_vol", 0.15))   # annualised vol target
 lev_cap = float(params.get("lev_cap", 3.0))
-CAPITAL = 100_000.0
+CAPITAL = 10_000.0
 
 # Horizons in DAYS, converted with this dataset's own bar spacing: a lookback
 # written in bars means one thing on hourly gold and something else entirely
@@ -323,7 +323,7 @@ class PythonRunner(BacktestEngine):
             raise BacktestError("the from/to window leaves no candles")
 
         capital = float(options.get("capital",
-                                    options.get("initial_capital", 100_000)))
+                                    options.get("initial_capital", 10_000)))
         commission_pct = float(options.get("commission_pct", 0) or 0)
 
         # Per-run deadline; walk-forward therefore bounds each fold, not the
