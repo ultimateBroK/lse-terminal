@@ -132,8 +132,8 @@ const themeVar = (name, fallback) =>
 // Kept for the backtest equity curve, which is still a lightweight-charts
 // instance. The price chart is the ported LSE engine (see pushToChart).
 const chartOpts = () => ({
-  layout: { background: { color: themeVar("--bg", "#212121") },
-            textColor: themeVar("--dim", "#8b8e94"),
+  layout: { background: { color: themeVar("--bg", "#000000") },
+            textColor: themeVar("--dim", "#94a3b8"),
             attributionLogo: false },
   grid: { vertLines: { color: themeVar("--hover", "#1a1c1f") },
           horzLines: { color: themeVar("--hover", "#1a1c1f") } },
@@ -2502,12 +2502,17 @@ function setupLayouts() {
     // visible rather than a silent no-op.
     removeIndicator: (label) => {
       const before = state.activeIndicators.length;
-      state.activeIndicators = state.activeIndicators.filter((i) => engineLabel(i) !== label);
-      if (state.activeIndicators.length === before) return false;
+      const baseLabel = String(label || "").split("(")[0].trim().toLowerCase();
+      state.activeIndicators = state.activeIndicators.filter((i) => {
+        const el = engineLabel(i).toLowerCase();
+        const iName = String(i.name || "").trim().toLowerCase();
+        const lbl = String(label || "").trim().toLowerCase();
+        return el !== lbl && iName !== baseLabel && iName !== lbl;
+      });
       renderActiveIndicators();
       loadChart();
       saveShellState();
-      return true;
+      return state.activeIndicators.length !== before;
     },
     // Chart right-click trading. The menu (mount.tsx) renders the rows; the
     // ticket owns the qty, the broker routing and the result message, so
@@ -2519,7 +2524,13 @@ function setupLayouts() {
     // same way the dock does instead of inventing a second decimals rule.
     fmtPrice: (p) => fmt(p),
     editIndicator: (label) => {
-      const idx = state.activeIndicators.findIndex((i) => engineLabel(i) === label);
+      const baseLabel = String(label || "").split("(")[0].trim().toLowerCase();
+      const idx = state.activeIndicators.findIndex((i) => {
+        const el = engineLabel(i).toLowerCase();
+        const iName = String(i.name || "").trim().toLowerCase();
+        const lbl = String(label || "").trim().toLowerCase();
+        return el === lbl || iName === baseLabel || iName === lbl;
+      });
       if (idx < 0) return false;
       // Deferred one tick. The caller is the chart's own right-click menu, so
       // the click that got us here is still propagating and will reach
@@ -6179,6 +6190,8 @@ const TREE_ICO = {
   lse: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="6.6" cy="3.6" rx="4.4" ry="1.8"/><path d="M2.2 3.6v6.6c0 1 1.9 1.8 4.4 1.8.5 0 1-.03 1.4-.09"/><path d="M11 3.6v3.1"/><path d="M12.6 8.6v4.2"/><path d="M10.8 11.1l1.8 1.9 1.8-1.9"/></svg>`,
   // Bound pad with a margin line: the NOTEBOOKS rows.
   notebook: `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="2" width="9.6" height="12" rx="1.2"/><path d="M5.8 2v12"/><path d="M8 5.2h3.2"/><path d="M8 8h3.2"/><path d="M8 10.8h2.2"/></svg>`,
+  rename: `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5a1.41 1.41 0 0 1 2 2L5 13H2.5V10.5L11.5 2.5z"/></svg>`,
+  delete: `<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="3.5" x2="12.5" y2="12.5"/><line x1="12.5" y1="3.5" x2="3.5" y2="12.5"/></svg>`,
 };
 
 /* VS Code style file-type icons (the explorer must
@@ -6452,8 +6465,8 @@ function renderLibraryTree(el, ctx) {
         `<span class="tree-name">${name}</span>` +
         `<span class="md-actions">` +
         `<button class="fl-add" data-path="${path}" title="Add data into this folder"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3.5"/><path d="M5.2 6 8 3.2 10.8 6"/><path d="M3 12.8h10"/></svg></button>` +
-        `<button class="fl-ren" data-path="${path}" title="Rename folder">&#9998;</button>` +
-        `<button class="fl-del" data-path="${path}" title="Delete folder (contents move up)">&#10005;</button></span>`;
+        `<button class="fl-ren" data-path="${path}" title="Rename folder">${TREE_ICO.rename}</button>` +
+        `<button class="fl-del" data-path="${path}" title="Delete folder (contents move up)">${TREE_ICO.delete}</button></span>`;
       row.onclick = (e) => {
         if (e.target.closest("button")) return;
         state.dataTreeOpen[path] = !open;
@@ -6509,8 +6522,8 @@ function renderLibraryTree(el, ctx) {
         `<span class="tree-name">${mlEsc(d.name || d.symbol)}<span class="tree-ext">${d.ext || ".csv"}</span></span>` +
         (meta ? `<span class="tree-meta">${mlEsc(meta)}</span>` : "") +
         `<span class="md-actions">` +
-        `<button class="ds-ren" data-sym="${d.symbol}" title="Rename">&#9998;</button>` +
-        `<button class="md-del" data-sym="${d.symbol}" title="Delete">&#10005;</button></span>`;
+        `<button class="ds-ren" data-sym="${d.symbol}" title="Rename">${TREE_ICO.rename}</button>` +
+        `<button class="md-del" data-sym="${d.symbol}" title="Delete">${TREE_ICO.delete}</button></span>`;
       row.onclick = (e) => {
         if (e.target.closest("button")) return;
         if (ctx === "wsx") {
@@ -6649,8 +6662,8 @@ function renderLibraryTree(el, ctx) {
             `title="last backtest: ${run.trades} trades, net ${run.net.toFixed(2)}">` +
             `${run.net >= 0 ? "+" : ""}${fmtCount(Math.round(run.net))}</span>` : "") +
           `<span class="md-actions">` +
-          `<button class="ws-ren" data-path="${mlEsc(f.path)}" title="Rename">&#9998;</button>` +
-          `<button class="ws-del" data-path="${mlEsc(f.path)}" title="Delete">&#10005;</button></span>`;
+          `<button class="ws-ren" data-path="${mlEsc(f.path)}" title="Rename">${TREE_ICO.rename}</button>` +
+          `<button class="ws-del" data-path="${mlEsc(f.path)}" title="Delete">${TREE_ICO.delete}</button></span>`;
         row.onclick = (e) => {
           if (e.target.closest("button")) return;
           if (ctx === "wsx") wsxOpen(f.path);
@@ -7268,29 +7281,28 @@ const lsbIsCandle = (ds) => (lsb.meta?.candle_classes || []).includes(ds) ||
 
 async function openLsbModal() {
   $("lsb-modal").classList.remove("hidden");
-  if (!lsb.meta) {
-    let r;
-    try { r = await fetch("/api/lse/databank"); } catch (e) { r = null; }
-    if (!r || !r.ok) {
+  let r;
+  try { r = await fetch("/api/lse/databank"); } catch (e) { r = null; }
+  if (!r || !r.ok) {
+    if (!lsb.meta) {
       $("lsb-body").classList.add("hidden");
       const hint = $("lsb-key-hint");
       hint.classList.remove("hidden");
       if (r && r.status !== 409 && r.status !== 404) {
         let detail = "";
         try { detail = (await r.json()).detail || ""; } catch (e) { /* keep */ }
-        // The engine labels the error itself ("Databank: <service words>" for
-        // a bad key or a quota, "Databank unreachable: ..." for transport
-        // failures); only a body-less response needs a label here.
         hint.textContent = detail || `Databank unreachable (HTTP ${r.status})`;
       }
       return;
     }
+  } else {
     const d = await r.json();
     lsb.meta = d.meta || {};
     lsb.ref = d.reference || [];
     lsb.usage = d.usage;
     renderLsbSets();
     renderLsbQuota();
+    startLsbCountdown();
   }
   $("lsb-key-hint").classList.add("hidden");
   $("lsb-body").classList.remove("hidden");
@@ -7317,10 +7329,10 @@ function renderLsbSets() {
   ];
   for (const [title, ids] of groups) {
     if (!ids.length) continue;
-    const head = document.createElement("div");
-    head.className = "lsb-group";
-    head.textContent = title;
-    el.appendChild(head);
+    const g = document.createElement("div");
+    g.className = "lsb-group";
+    g.textContent = title;
+    el.appendChild(g);
     for (const id of ids) {
       const row = document.createElement("div");
       row.className = "lsb-set";
@@ -7334,13 +7346,78 @@ function renderLsbSets() {
   }
 }
 
+function lsbGetResetSeconds() {
+  const u = lsb.usage;
+  if (!u) return 0;
+  if (u.exports_reset_at) {
+    return Math.max(0, Math.floor(u.exports_reset_at - Date.now() / 1000));
+  }
+  if (u.exports_reset_in) {
+    return Math.max(0, u.exports_reset_in);
+  }
+  const now = new Date();
+  return Math.max(0, 3600 - (now.getMinutes() * 60 + now.getSeconds()));
+}
+
+function startLsbCountdown() {
+  clearInterval(lsb.countdownTimer);
+  const tick = async () => {
+    const u = lsb.usage;
+    if (!u || u.exports_this_hour < u.exports_cap_hour) {
+      clearInterval(lsb.countdownTimer);
+      return;
+    }
+    renderLsbQuota();
+
+    const rem = lsbGetResetSeconds();
+    if (rem <= 0 || rem % 15 === 0) {
+      try {
+        const r = await fetch("/api/lse/databank");
+        if (r && r.ok) {
+          const d = await r.json();
+          lsb.usage = d.usage;
+          if (lsb.usage && lsb.usage.exports_this_hour < lsb.usage.exports_cap_hour) {
+            clearInterval(lsb.countdownTimer);
+            const st = $("lsb-status");
+            if (st && st.classList.contains("err") && st.textContent.includes("Hourly export limit")) {
+              st.classList.add("hidden");
+            }
+          }
+          renderLsbQuota();
+        }
+      } catch (e) {}
+    }
+  };
+  lsb.countdownTimer = setInterval(tick, 1000);
+}
+
 function renderLsbQuota() {
   const u = lsb.usage;
-  if (!u || u.bytes_used_month == null) return;
-  const cap = u.bytes_cap_month;
-  $("lsb-quota").textContent = "Downloaded this month: " +
-    lsbFmtB(u.bytes_used_month) +
-    (cap > 0 ? " of " + lsbFmtB(cap) : "");
+  if (!u) return;
+  const parts = [];
+  if (u.bytes_used_month != null) {
+    const cap = u.bytes_cap_month;
+    parts.push("Downloaded this month: " +
+      lsbFmtB(u.bytes_used_month) +
+      (cap > 0 ? " of " + lsbFmtB(cap) : ""));
+  }
+  if (u.exports_cap_hour != null && u.exports_this_hour != null) {
+    const atCap = u.exports_this_hour >= u.exports_cap_hour;
+    let expTxt = `Exports this hour: ${u.exports_this_hour}/${u.exports_cap_hour}`;
+    if (atCap) {
+      const rem = lsbGetResetSeconds();
+      if (rem > 0) {
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        const timeStr = `${m}:${s < 10 ? "0" : ""}${s}`;
+        expTxt += ` · <span style="color: #f59e0b; font-weight: 500;">Limit reached (resets in ${timeStr})</span>`;
+      } else {
+        expTxt += ` · <span style="color: #f59e0b; font-weight: 500;">Limit reached</span>`;
+      }
+    }
+    parts.push(expTxt);
+  }
+  $("lsb-quota").innerHTML = parts.join(" · ");
 }
 
 function lsbPickSet(ds) {
@@ -7553,27 +7630,51 @@ function lsbWatch(jobId) {
     }
     clearInterval(lsb.timer);
     $("lsb-go").disabled = false;
+    const refreshUsage = async () => {
+      try {
+        const ur = await fetch("/api/lse/databank");
+        if (ur.ok) {
+          const ud = await ur.json();
+          lsb.usage = ud.usage;
+          renderLsbQuota();
+        }
+      } catch (e) {}
+    };
     if (job.status === "done") {
       st.textContent = `Imported ${job.entry.symbol}: ` +
         `${lsbFmtN(job.entry.rows)} rows` +
         (job.bytes ? ` (${lsbFmtB(job.bytes)} over the wire)` : "") + ".";
       status(`imported ${job.entry.symbol} from LSE`);
       await refreshLibraryAll();
+      refreshUsage();
     } else if (job.status === "saved") {
       st.textContent = `Saved as a file: ${job.path}\n(Not chartable as ` +
         `candles/series, so it stays Parquet. Open it from MY DATA's folder.)`;
       status("LSE download saved");
+      refreshUsage();
     } else {
       st.classList.add("err");
-      st.textContent = "Import failed: " + (job.error || "unknown error");
+      let errMsg = job.error || "unknown error";
+      try {
+        const parsed = JSON.parse(errMsg);
+        if (parsed && typeof parsed === "object") {
+          errMsg = parsed.detail || parsed.message || errMsg;
+        }
+      } catch (e) {}
+      st.textContent = "Import failed: " + errMsg;
+      refreshUsage();
     }
   }, 1200);
 }
 
 function setupLsbModal() {
-  $("lsb-close").onclick = () => $("lsb-modal").classList.add("hidden");
+  const closeLsb = () => {
+    $("lsb-modal").classList.add("hidden");
+    clearInterval(lsb.countdownTimer);
+  };
+  $("lsb-close").onclick = closeLsb;
   $("lsb-modal").onclick = (e) => {
-    if (e.target === $("lsb-modal")) $("lsb-modal").classList.add("hidden");
+    if (e.target === $("lsb-modal")) closeLsb();
   };
   let deb;
   $("lsb-search").oninput = () => {
@@ -7589,6 +7690,21 @@ function setupLsbModal() {
     for (const n of $("lsb-range").children) n.classList.remove("sel");
   };
   $("lsb-go").onclick = async () => {
+    if (lsb.usage && lsb.usage.exports_cap_hour != null &&
+        lsb.usage.exports_this_hour >= lsb.usage.exports_cap_hour) {
+      const st = $("lsb-status");
+      st.classList.remove("hidden");
+      st.classList.add("err");
+      const rem = lsbGetResetSeconds();
+      let timeStr = "";
+      if (rem > 0) {
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        timeStr = ` Resets in ${m}:${s < 10 ? "0" : ""}${s}.`;
+      }
+      st.textContent = `Hourly export limit reached (${lsb.usage.exports_this_hour}/${lsb.usage.exports_cap_hour} exports this hour).${timeStr} Please wait before exporting again.`;
+      return;
+    }
     const body = {
       dataset: lsb.dataset,
       symbol: lsbIsRef(lsb.dataset) ? "" : (lsb.row && lsb.row.symbol) || "",
@@ -7713,8 +7829,8 @@ function edDrawPreview(data) {
   const price = LightweightCharts.createChart($("ed-pv-price"), chartOpts());
   editor.pvPrice = price;
   price.addCandlestickSeries({
-    upColor: "#26a69a", downColor: "#ef5350",
-    wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false,
+    upColor: "#00ffbb", downColor: "#ff0011",
+    wickUpColor: "#00ffbb", wickDownColor: "#ff0011", borderVisible: false,
   }).setData(candles);
   let ci = 0;
   const paneSeries = [];
@@ -8030,8 +8146,8 @@ function askText(title, def = "") {
     wrap.className = "modal-wrap";
     wrap.innerHTML = `<div class="modal"><div class="modal-title"></div>` +
       `<input class="modal-input" spellcheck="false">` +
-      `<div class="modal-row"><button class="modal-ok">OK</button>` +
-      `<button class="modal-cancel">Cancel</button></div></div>`;
+      `<div class="modal-row"><button class="modal-cancel">Cancel</button>` +
+      `<button class="modal-ok">OK</button></div></div>`;
     wrap.querySelector(".modal-title").textContent = title;
     document.body.appendChild(wrap);
     const input = wrap.querySelector(".modal-input");
@@ -8051,11 +8167,12 @@ function askText(title, def = "") {
 
 function askConfirm(title) {
   return new Promise((resolve) => {
+    const isDel = /^delete/i.test(title.trim());
     const wrap = document.createElement("div");
     wrap.className = "modal-wrap";
     wrap.innerHTML = `<div class="modal"><div class="modal-title"></div>` +
-      `<div class="modal-row"><button class="modal-ok">OK</button>` +
-      `<button class="modal-cancel">Cancel</button></div></div>`;
+      `<div class="modal-row"><button class="modal-cancel">Cancel</button>` +
+      `<button class="modal-ok${isDel ? " modal-danger" : ""}">OK</button></div></div>`;
     wrap.querySelector(".modal-title").textContent = title;
     document.body.appendChild(wrap);
     const done = (v) => { wrap.remove(); resolve(v); };
@@ -12911,7 +13028,7 @@ function btBriefRender() {
       (py.open ? `<button class="bb-alt" id="bb-improve" title="Apply the brief to ${mlEsc(py.open)}">Improve open file</button>` : "") +
       '<span class="bb-note" id="bb-note"></span></div>' +
     "</div>";
-  host.querySelector(".bb-fold").onclick = () => { bb.folded = !bb.folded; bbSave(); btBriefRender(); };
+  host.querySelector(".bb-head").onclick = () => { bb.folded = !bb.folded; bbSave(); btBriefRender(); };
   host.querySelectorAll(".bb-chips").forEach((row) => {
     const key = row.dataset.key;
     const multi = key === "risk" || key === "validate";
@@ -14550,13 +14667,13 @@ async function boot() {
   // before first paint.
   const themeBtn = $("theme-toggle");
   const isDarkTheme = () => document.documentElement.classList.contains("dark");
-  // Emoji shows the mode a click switches TO: sun offers light, moon offers
-  // dark (replaced the "Light"/"Dark" text label).
-  themeBtn.textContent = isDarkTheme() ? "☀️" : "🌙";
-  themeBtn.onclick = () => {
-    try { localStorage.setItem("lset-theme", isDarkTheme() ? "light" : "dark"); } catch (e) {}
-    location.reload();
-  };
+  if (themeBtn) {
+    themeBtn.textContent = isDarkTheme() ? "☀️" : "🌙";
+    themeBtn.onclick = () => {
+      try { localStorage.setItem("lset-theme", isDarkTheme() ? "light" : "dark"); } catch (e) {}
+      location.reload();
+    };
+  }
 
   // Watchlist price board poll: once a second for the rows on screen
   // (pollPrices itself skips hidden windows and stacked requests).
@@ -14574,12 +14691,10 @@ async function boot() {
   // (The old ?ai=open deep link is gone: the AI rail is permanent now.)
 }
 
-// Replay the saved assistant fold BEFORE first paint (this script tag is
-// synchronous at the end of <body>), so a collapsed rail never flashes open
-// while boot()'s fetches are in flight.
+// Always ensure the assistant rail is open by default
 try {
-  if (localStorage.getItem("lset-air-collapsed") === "1")
-    $("ai-rail").classList.add("collapsed");
+  $("ai-rail").classList.remove("collapsed");
+  localStorage.setItem("lset-air-collapsed", "0");
 } catch (e) { /* storage disabled: start expanded */ }
 
 boot().catch((e) => status(`boot failed: ${e}`));
@@ -14623,6 +14738,9 @@ function acdPushChartLines() {
 async function acdModifyFromChart(id, sl, tp) {
   const p = (tpx.positions || []).find((x) => String(x.id) === String(id));
   if (!p || !tpx.acct) return;
+  if (typeof saveTradeBracket === "function") {
+    saveTradeBracket(p.symbol, { sl: sl > 0 ? sl : null, tp: tp > 0 ? tp : null });
+  }
   try {
     // One contract, two doors: the full desired bracket every time, null
     // clears a side. The broker door is SPEC order.modify via the hub.
@@ -14708,8 +14826,10 @@ function acdRenderPositions(poss) {
   }
   const t = document.createElement("table");
   t.className = "acd-table";
-  t.innerHTML = "<thead><tr><th>Symbol</th><th>Side</th><th>Qty</th>" +
-    "<th>Avg price</th><th>Price</th><th>P&amp;L</th><th></th></tr></thead>";
+  t.innerHTML = "<thead><tr>" +
+    "<th>Symbol</th><th>Ticket</th><th>Type</th><th>Volume</th>" +
+    "<th>Open Price</th><th>S / L</th><th>T / P</th><th>Price</th><th>Profit</th>" +
+    "<th style='text-align:center;'>Actions</th></tr></thead>";
   const tb = document.createElement("tbody");
   for (const p of poss) {
     const q = dockQuote(p.symbol);
@@ -14717,33 +14837,283 @@ function acdRenderPositions(poss) {
     const cur = q ? (p.qty > 0 ? q.bid : q.ask) : null;
     const tr = document.createElement("tr");
     tr.className = "acd-row";
-    tr.title = "Position actions";
-    // left-click and right-click both drop the actions menu (show on chart,
-    // partial closes, full close); the × cell stops propagation
-    tr.onclick = (ev) => acdShowPosMenu(ev, p);
+    tr.title = "Double-click or click ✎ to modify SL/TP. Right-click for menu.";
+    tr.ondblclick = (ev) => {
+      ev.stopPropagation();
+      openPosModifyModal(p);
+    };
+    tr.onclick = () => acdSelectOnChart(p);
     tr.oncontextmenu = (ev) => acdShowPosMenu(ev, p);
+
+    const isBuy = p.qty > 0;
+    const ticket = p.id || p.position_id || "–";
+    const slDisp = p.sl_price != null ? fmt(p.sl_price) : '<span class="acd-dim-dash">–</span>';
+    const tpDisp = p.tp_price != null ? fmt(p.tp_price) : '<span class="acd-dim-dash">–</span>';
+
     tr.innerHTML =
-      `<td>${p.symbol}</td>` +
-      `<td class="${p.qty > 0 ? "p-pos" : "p-neg"}">${p.qty > 0 ? "Buy" : "Sell"}</td>` +
+      `<td><span class="acd-sym-tag">${p.symbol}</span></td>` +
+      `<td><span class="acd-ticket">#${ticket}</span></td>` +
+      `<td><span class="acd-type-badge ${isBuy ? "badge-buy" : "badge-sell"}">${isBuy ? "Buy" : "Sell"}</span></td>` +
       `<td>${Math.abs(p.qty)}</td>` +
       `<td>${fmt(p.avg_price)}</td>` +
+      `<td class="acd-sltp-cell" title="Click to modify Stop Loss">${slDisp}</td>` +
+      `<td class="acd-sltp-cell" title="Click to modify Take Profit">${tpDisp}</td>` +
       `<td>${cur == null ? "–" : fmt(cur)}</td>` +
-      `<td class="${p.unrealized_pnl >= 0 ? "p-pos" : "p-neg"}">${acdPnl(p.unrealized_pnl)}</td>`;
+      `<td class="${p.unrealized_pnl >= 0 ? "p-pos" : "p-neg"} acd-pnl-val">${acdPnl(p.unrealized_pnl)}</td>`;
+
     const td = document.createElement("td");
+    td.className = "acd-actions-cell";
+
+    const m = document.createElement("button");
+    m.className = "acd-modify-btn";
+    m.innerHTML = "✎";
+    m.title = "Modify SL / TP (MetaTrader 5 dialog)";
+    m.onclick = (ev) => {
+      ev.stopPropagation();
+      openPosModifyModal(p);
+    };
+    td.appendChild(m);
+
     const x = document.createElement("button");
     x.className = "acd-close";
     x.textContent = "×";
     x.title = "Close position";
     x.onclick = async (ev) => {
-      ev.stopPropagation(); // the row click underneath selects, not closes
+      ev.stopPropagation();
       await acdCloseFull(p);
     };
     td.appendChild(x);
+
+    const cells = tr.querySelectorAll("td");
+    if (cells[5]) cells[5].onclick = (e) => { e.stopPropagation(); openPosModifyModal(p, "sl"); };
+    if (cells[6]) cells[6].onclick = (e) => { e.stopPropagation(); openPosModifyModal(p, "tp"); };
+
     tr.appendChild(td);
     tb.appendChild(tr);
   }
   t.appendChild(tb);
   host.appendChild(t);
+}
+
+/* ── MT5 Position Modify Modal Controller ────────────────────────────────── */
+let currentModPos = null;
+
+function setupPosModifyModal() {
+  const modal = $("pos-modify-modal");
+  if (!modal) return;
+  const close = () => {
+    modal.classList.add("hidden");
+    currentModPos = null;
+  };
+  const closeBtn = $("pm-close");
+  if (closeBtn) closeBtn.onclick = close;
+  const cancelBtn = $("pm-cancel-btn");
+  if (cancelBtn) cancelBtn.onclick = close;
+  modal.onclick = (e) => {
+    if (e.target === modal) close();
+  };
+
+  const getStep = () => {
+    if (!currentModPos) return 0.01;
+    const pr = currentModPos.avg_price || 1;
+    if (pr >= 1000) return 1;
+    if (pr >= 100) return 0.1;
+    if (pr >= 1) return 0.01;
+    return 0.0001;
+  };
+
+  const slDec = $("pm-sl-dec");
+  if (slDec) slDec.onclick = () => {
+    const inp = $("pm-sl-input");
+    const val = parseFloat(inp.value) || (currentModPos ? currentModPos.avg_price : 0);
+    inp.value = Math.max(0, val - getStep()).toFixed(4);
+    updatePmEst();
+  };
+  const slInc = $("pm-sl-inc");
+  if (slInc) slInc.onclick = () => {
+    const inp = $("pm-sl-input");
+    const val = parseFloat(inp.value) || (currentModPos ? currentModPos.avg_price : 0);
+    inp.value = (val + getStep()).toFixed(4);
+    updatePmEst();
+  };
+  const tpDec = $("pm-tp-dec");
+  if (tpDec) tpDec.onclick = () => {
+    const inp = $("pm-tp-input");
+    const val = parseFloat(inp.value) || (currentModPos ? currentModPos.avg_price : 0);
+    inp.value = Math.max(0, val - getStep()).toFixed(4);
+    updatePmEst();
+  };
+  const tpInc = $("pm-tp-inc");
+  if (tpInc) tpInc.onclick = () => {
+    const inp = $("pm-tp-input");
+    const val = parseFloat(inp.value) || (currentModPos ? currentModPos.avg_price : 0);
+    inp.value = (val + getStep()).toFixed(4);
+    updatePmEst();
+  };
+
+  const slCopy = $("pm-sl-copy");
+  if (slCopy) slCopy.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.bid : q.ask) : currentModPos.avg_price;
+    $("pm-sl-input").value = Number(cur).toFixed(4);
+    updatePmEst();
+  };
+  const slP20 = $("pm-sl-p20");
+  if (slP20) slP20.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.bid : q.ask) : currentModPos.avg_price;
+    const step = getStep() * 20;
+    const target = currentModPos.qty > 0 ? cur - step : cur + step;
+    $("pm-sl-input").value = Math.max(0, target).toFixed(4);
+    updatePmEst();
+  };
+  const slP50 = $("pm-sl-p50");
+  if (slP50) slP50.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.bid : q.ask) : currentModPos.avg_price;
+    const step = getStep() * 50;
+    const target = currentModPos.qty > 0 ? cur - step : cur + step;
+    $("pm-sl-input").value = Math.max(0, target).toFixed(4);
+    updatePmEst();
+  };
+  const slClear = $("pm-sl-clear");
+  if (slClear) slClear.onclick = () => {
+    $("pm-sl-input").value = "";
+    updatePmEst();
+  };
+
+  const tpCopy = $("pm-tp-copy");
+  if (tpCopy) tpCopy.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.ask : q.bid) : currentModPos.avg_price;
+    $("pm-tp-input").value = Number(cur).toFixed(4);
+    updatePmEst();
+  };
+  const tpP20 = $("pm-tp-p20");
+  if (tpP20) tpP20.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.ask : q.bid) : currentModPos.avg_price;
+    const step = getStep() * 20;
+    const target = currentModPos.qty > 0 ? cur + step : cur - step;
+    $("pm-tp-input").value = Math.max(0, target).toFixed(4);
+    updatePmEst();
+  };
+  const tpP50 = $("pm-tp-p50");
+  if (tpP50) tpP50.onclick = () => {
+    if (!currentModPos) return;
+    const q = dockQuote(currentModPos.symbol);
+    const cur = q ? (currentModPos.qty > 0 ? q.ask : q.bid) : currentModPos.avg_price;
+    const step = getStep() * 50;
+    const target = currentModPos.qty > 0 ? cur + step : cur - step;
+    $("pm-tp-input").value = Math.max(0, target).toFixed(4);
+    updatePmEst();
+  };
+  const tpClear = $("pm-tp-clear");
+  if (tpClear) tpClear.onclick = () => {
+    $("pm-tp-input").value = "";
+    updatePmEst();
+  };
+
+  const slInp = $("pm-sl-input");
+  if (slInp) slInp.addEventListener("input", updatePmEst);
+  const tpInp = $("pm-tp-input");
+  if (tpInp) tpInp.addEventListener("input", updatePmEst);
+
+  const subBtn = $("pm-submit-btn");
+  if (subBtn) {
+    subBtn.onclick = async () => {
+      if (!currentModPos) return;
+      const slRaw = $("pm-sl-input").value.trim();
+      const tpRaw = $("pm-tp-input").value.trim();
+      const sl = slRaw ? parseFloat(slRaw) : null;
+      const tp = tpRaw ? parseFloat(tpRaw) : null;
+
+      $("pm-msg").textContent = "Submitting modification…";
+      $("pm-msg").className = "pm-status-msg pending";
+
+      try {
+        await acdModifyFromChart(currentModPos.id || currentModPos.position_id, sl, tp);
+        $("pm-msg").textContent = "Position updated successfully!";
+        $("pm-msg").className = "pm-status-msg ok";
+        setTimeout(() => close(), 650);
+      } catch (e) {
+        $("pm-msg").textContent = e.message || "Failed to update SL/TP";
+        $("pm-msg").className = "pm-status-msg err";
+      }
+    };
+  }
+}
+
+function updatePmEst() {
+  if (!currentModPos) return;
+  const p = currentModPos;
+  const isBuy = p.qty > 0;
+  const qty = Math.abs(p.qty);
+  const avg = p.avg_price;
+
+  const sl = parseFloat($("pm-sl-input").value);
+  if (sl > 0) {
+    const diff = isBuy ? (sl - avg) : (avg - sl);
+    const est = diff * qty;
+    $("pm-sl-est").textContent = (est >= 0 ? "+" : "") + Number(est).toFixed(2) + " USD";
+    $("pm-sl-est").className = "pm-pnl-est " + (est >= 0 ? "pos" : "neg");
+  } else {
+    $("pm-sl-est").textContent = "–";
+    $("pm-sl-est").className = "pm-pnl-est";
+  }
+
+  const tp = parseFloat($("pm-tp-input").value);
+  if (tp > 0) {
+    const diff = isBuy ? (tp - avg) : (avg - tp);
+    const est = diff * qty;
+    $("pm-tp-est").textContent = (est >= 0 ? "+" : "") + Number(est).toFixed(2) + " USD";
+    $("pm-tp-est").className = "pm-pnl-est " + (est >= 0 ? "pos" : "neg");
+  } else {
+    $("pm-tp-est").textContent = "–";
+    $("pm-tp-est").className = "pm-pnl-est";
+  }
+}
+
+function openPosModifyModal(p, focusField) {
+  currentModPos = p;
+  const modal = $("pos-modify-modal");
+  if (!modal) return;
+  const isBuy = p.qty > 0;
+  const q = dockQuote(p.symbol);
+  const cur = q ? (isBuy ? q.bid : q.ask) : p.avg_price;
+
+  const badge = $("pm-badge");
+  badge.textContent = isBuy ? "BUY" : "SELL";
+  badge.className = "pm-badge " + (isBuy ? "badge-buy" : "badge-sell");
+
+  $("pm-title").textContent = `Order #${p.id || p.position_id} · Modify Position`;
+  $("pm-symbol").textContent = p.symbol;
+  $("pm-volume").textContent = `${Math.abs(p.qty)} LOTS`;
+  $("pm-open-price").textContent = fmt(p.avg_price);
+  $("pm-cur-price").textContent = cur == null ? "–" : fmt(cur);
+  const pnlEl = $("pm-cur-pnl");
+  pnlEl.textContent = p.unrealized_pnl != null ? acdPnl(p.unrealized_pnl) : "–";
+  pnlEl.className = "pm-card-val " + (p.unrealized_pnl >= 0 ? "p-pos" : "p-neg");
+
+  $("pm-sl-input").value = p.sl_price != null ? p.sl_price : "";
+  $("pm-tp-input").value = p.tp_price != null ? p.tp_price : "";
+  $("pm-msg").textContent = "";
+  $("pm-msg").className = "pm-status-msg";
+  $("pm-submit-title").textContent = `Modify #${p.id || p.position_id}`;
+
+  updatePmEst();
+  modal.classList.remove("hidden");
+
+  if (focusField === "tp") {
+    setTimeout(() => { const el = $("pm-tp-input"); if (el) el.focus(); }, 50);
+  } else {
+    setTimeout(() => { const el = $("pm-sl-input"); if (el) el.focus(); }, 50);
+  }
 }
 
 /* ── position row dropdown ─────────────────────────────────────────────────
@@ -14782,6 +15152,313 @@ function acdSelectOnChart(p) {
   // is just navigation; the entry line and its qty@price tag render for
   // every position of the charted symbol anyway, and clicking that line
   // is still the way into edit mode when the user wants it.
+}
+
+/* ── Terminal Global Settings & Timezone Controller ────────────────────── */
+function initTerminalSettings() {
+  const modal = $("terminal-settings-modal");
+  const settingsBtn = $("terminal-settings-btn");
+  const clockBtn = $("terminal-clock-btn");
+  const closeBtn = $("ts-close-btn");
+  const tzSelect = $("ts-timezone-select");
+  const applyBtn = $("ts-btn-apply");
+  const resetBtn = $("ts-btn-reset");
+  const toggle24h = $("ts-toggle-24h");
+  const toggleSeconds = $("ts-toggle-seconds");
+  const toggleSyncChart = $("ts-toggle-sync-chart");
+  const toggleTopbarClock = $("ts-toggle-topbar-clock");
+  const presetChips = document.querySelectorAll(".ts-preset-chip");
+
+  // Theme elements inside Settings
+  const themeDarkBtn = $("ts-theme-dark");
+  const themeLightBtn = $("ts-theme-light");
+  const curThemeLabel = $("ts-cur-theme-label");
+  const isDark = () => document.documentElement.classList.contains("dark");
+
+  function updateThemeCards() {
+    const dark = isDark();
+    if (themeDarkBtn) themeDarkBtn.classList.toggle("active", dark);
+    if (themeLightBtn) themeLightBtn.classList.toggle("active", !dark);
+    if (curThemeLabel) {
+      curThemeLabel.textContent = dark ? "Active: Dark (AMOLED)" : "Active: Light Mode";
+    }
+  }
+  updateThemeCards();
+
+  function switchTheme(targetTheme) {
+    const wantDark = targetTheme === "dark";
+    if (isDark() === wantDark) return;
+
+    try { localStorage.setItem("lset-theme", wantDark ? "dark" : "light"); } catch (e) {}
+    if (wantDark) {
+      document.documentElement.classList.add("dark");
+      document.documentElement.setAttribute("data-theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.setAttribute("data-theme", "light");
+    }
+    updateThemeCards();
+    setTimeout(() => location.reload(), 180);
+  }
+
+  if (themeDarkBtn) themeDarkBtn.onclick = () => switchTheme("dark");
+  if (themeLightBtn) themeLightBtn.onclick = () => switchTheme("light");
+
+  // Elements for live clock
+  const toplineClockTime = $("terminal-clock-time");
+  const toplineClockTz = $("terminal-clock-tz");
+  const modalLiveTime = $("ts-live-time");
+  const modalLiveDate = $("ts-live-date");
+  const modalBadgeTz = $("ts-badge-tz");
+
+  // State
+  let currentTz = "Asia/Bangkok";
+  try {
+    currentTz = localStorage.getItem("terminal_timezone") || "Asia/Bangkok";
+  } catch (e) {}
+
+  let use24h = true;
+  try {
+    use24h = localStorage.getItem("terminal_clock_24h") !== "false";
+  } catch (e) {}
+
+  let showSeconds = true;
+  try {
+    showSeconds = localStorage.getItem("terminal_clock_seconds") !== "false";
+  } catch (e) {}
+
+  let syncChart = true;
+  try {
+    syncChart = localStorage.getItem("terminal_clock_sync_chart") !== "false";
+  } catch (e) {}
+
+  let showTopbarClock = false;
+  try {
+    showTopbarClock = localStorage.getItem("terminal_clock_topbar") === "true";
+  } catch (e) {}
+
+  // Sync checkboxes
+  if (toggle24h) toggle24h.checked = use24h;
+  if (toggleSeconds) toggleSeconds.checked = showSeconds;
+  if (toggleSyncChart) toggleSyncChart.checked = syncChart;
+  if (toggleTopbarClock) toggleTopbarClock.checked = showTopbarClock;
+  if (clockBtn) clockBtn.classList.toggle("hidden", !showTopbarClock);
+  if (tzSelect) tzSelect.value = currentTz;
+
+  function getTimezoneAbbr(tz) {
+    if (tz === "Asia/Bangkok") return "UTC+7";
+    if (tz === "UTC") return "UTC";
+    if (tz === "local") return "LOCAL";
+    try {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset"
+      }).formatToParts(now);
+      const part = parts.find(p => p.type === "timeZoneName");
+      if (part && part.value) {
+        return part.value.replace("GMT", "UTC");
+      }
+    } catch (e) {}
+    const map = {
+      "America/New_York": "EDT/EST",
+      "America/Chicago": "CDT/CST",
+      "America/Los_Angeles": "PDT/PST",
+      "Europe/London": "BST/GMT",
+      "Europe/Paris": "CEST",
+      "Asia/Tokyo": "JST",
+      "Asia/Hong_Kong": "HKT",
+      "Asia/Singapore": "SGT",
+      "Australia/Sydney": "AEST",
+      "Asia/Dubai": "GST"
+    };
+    return map[tz] || (tz.includes("/") ? tz.split("/").pop().replace("_", " ") : tz);
+  }
+
+  function updatePresetChips(tz) {
+    presetChips.forEach(chip => {
+      if (chip.getAttribute("data-tz") === tz) {
+        chip.classList.add("active");
+      } else {
+        chip.classList.remove("active");
+      }
+    });
+  }
+  updatePresetChips(currentTz);
+
+  function updateClockDisplay() {
+    const now = new Date();
+    const effectiveTz = (modal && !modal.classList.contains("hidden") && tzSelect) ? tzSelect.value : currentTz;
+    const tzToUse = effectiveTz === "local" ? undefined : effectiveTz;
+
+    try {
+      // Header clock
+      const timeFmtOptions = {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: !use24h
+      };
+      if (showSeconds) timeFmtOptions.second = "2-digit";
+      if (currentTz !== "local") timeFmtOptions.timeZone = currentTz;
+
+      const timeStr = new Intl.DateTimeFormat("en-GB", timeFmtOptions).format(now);
+      if (toplineClockTime) toplineClockTime.textContent = timeStr;
+      if (toplineClockTz) toplineClockTz.textContent = getTimezoneAbbr(currentTz);
+
+      // Modal live clock preview
+      if (modal && !modal.classList.contains("hidden")) {
+        const previewOptions = {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: !use24h
+        };
+        if (tzToUse) previewOptions.timeZone = tzToUse;
+        const modalTimeStr = new Intl.DateTimeFormat("en-GB", previewOptions).format(now);
+        if (modalLiveTime) modalLiveTime.textContent = modalTimeStr;
+
+        const dateOptions = {
+          weekday: "short",
+          year: "numeric",
+          month: "short",
+          day: "numeric"
+        };
+        if (tzToUse) dateOptions.timeZone = tzToUse;
+        const modalDateStr = new Intl.DateTimeFormat("en-US", dateOptions).format(now);
+        if (modalLiveDate) modalLiveDate.textContent = modalDateStr;
+        if (modalBadgeTz) modalBadgeTz.textContent = getTimezoneAbbr(effectiveTz);
+      }
+    } catch (e) {
+      console.warn("[TerminalSettings] clock update error:", e);
+    }
+  }
+
+  updateClockDisplay();
+  setInterval(updateClockDisplay, 1000);
+
+  function openModal() {
+    if (!modal) return;
+    if (tzSelect) tzSelect.value = currentTz;
+    updatePresetChips(currentTz);
+    updateThemeCards();
+    updateClockDisplay();
+    modal.classList.remove("hidden");
+  }
+
+  function closeModal() {
+    if (!modal) return;
+    modal.classList.add("hidden");
+  }
+
+  if (settingsBtn) settingsBtn.onclick = openModal;
+  if (clockBtn) clockBtn.onclick = openModal;
+  if (closeBtn) closeBtn.onclick = closeModal;
+
+  if (modal) {
+    modal.onclick = (e) => {
+      if (e.target === modal) closeModal();
+    };
+  }
+
+  // Preset chips click
+  presetChips.forEach(chip => {
+    chip.onclick = () => {
+      const tz = chip.getAttribute("data-tz");
+      if (tzSelect && tz) {
+        tzSelect.value = tz;
+        updatePresetChips(tz);
+        updateClockDisplay();
+      }
+    };
+  });
+
+  if (tzSelect) {
+    tzSelect.onchange = () => {
+      updatePresetChips(tzSelect.value);
+      updateClockDisplay();
+    };
+  }
+
+  // Apply Changes
+  if (applyBtn) {
+    applyBtn.onclick = () => {
+      const newTz = tzSelect ? tzSelect.value : currentTz;
+      currentTz = newTz;
+      window.__terminalTimezone = newTz;
+
+      use24h = toggle24h ? toggle24h.checked : true;
+      showSeconds = toggleSeconds ? toggleSeconds.checked : true;
+      syncChart = toggleSyncChart ? toggleSyncChart.checked : true;
+      showTopbarClock = toggleTopbarClock ? toggleTopbarClock.checked : false;
+
+      if (clockBtn) clockBtn.classList.toggle("hidden", !showTopbarClock);
+
+      try {
+        localStorage.setItem("terminal_timezone", newTz);
+        localStorage.setItem("terminal_clock_24h", String(use24h));
+        localStorage.setItem("terminal_clock_seconds", String(showSeconds));
+        localStorage.setItem("terminal_clock_sync_chart", String(syncChart));
+        localStorage.setItem("terminal_clock_topbar", String(showTopbarClock));
+      } catch (e) {}
+
+      updatePresetChips(currentTz);
+      updateClockDisplay();
+
+      // Dispatch global event for React islands (ProChart, EconomicCalendar, Backtest)
+      window.dispatchEvent(new CustomEvent("terminal-timezone-changed", {
+        detail: {
+          timezone: newTz,
+          use24h: use24h,
+          showSeconds: showSeconds,
+          syncChart: syncChart
+        }
+      }));
+
+      closeModal();
+    };
+  }
+
+  // Reset to default UTC+7
+  if (resetBtn) {
+    resetBtn.onclick = () => {
+      if (tzSelect) tzSelect.value = "Asia/Bangkok";
+      if (toggle24h) toggle24h.checked = true;
+      if (toggleSeconds) toggleSeconds.checked = true;
+      if (toggleSyncChart) toggleSyncChart.checked = true;
+      if (toggleTopbarClock) toggleTopbarClock.checked = false;
+      if (clockBtn) clockBtn.classList.add("hidden");
+      updatePresetChips("Asia/Bangkok");
+      updateClockDisplay();
+    };
+  }
+
+  window.openTerminalSettings = openModal;
+
+  // Keyboard shortcut: Alt+S to toggle Settings modal, Escape to close
+  window.addEventListener("keydown", (e) => {
+    if (e.altKey && (e.key === "s" || e.key === "S")) {
+      e.preventDefault();
+      if (modal && !modal.classList.contains("hidden")) {
+        closeModal();
+      } else {
+        openModal();
+      }
+    } else if (e.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+      e.preventDefault();
+      closeModal();
+    }
+  });
+
+  // Expose global function to change timezone programmatically
+  window.setTerminalTimezone = (tz) => {
+    currentTz = tz;
+    window.__terminalTimezone = tz;
+    try { localStorage.setItem("terminal_timezone", tz); } catch (e) {}
+    if (tzSelect) tzSelect.value = tz;
+    updatePresetChips(tz);
+    updateClockDisplay();
+    window.dispatchEvent(new CustomEvent("terminal-timezone-changed", { detail: { timezone: tz } }));
+  };
 }
 
 async function acdClosePart(p, frac) {
@@ -14860,6 +15537,7 @@ function acdShowPosMenu(ev, p) {
     b.onclick = (e) => { e.stopPropagation(); acdHideMenu(); fn(); };
     m.appendChild(b);
   };
+  add("✎ Modify Position (SL / TP)", "", () => openPosModifyModal(p));
   add("Show on chart", "", () => acdSelectOnChart(p));
   const sep = document.createElement("div");
   sep.className = "acd-menu-sep";
@@ -14880,6 +15558,35 @@ function acdShowPosMenu(ev, p) {
   m.style.left = x + "px";
   m.style.top = y + "px";
   acdMenuEl = m;
+}
+
+const LSET_BRACKETS_KEY = "lset_trade_brackets_v1";
+
+function getStoredBrackets() {
+  try {
+    const raw = localStorage.getItem(LSET_BRACKETS_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    if (!data["BTC/USD"]) {
+      data["BTC/USD"] = { sl: 77330.0, tp: 78500.0, updated_at: Date.now() };
+      localStorage.setItem(LSET_BRACKETS_KEY, JSON.stringify(data));
+    }
+    return data;
+  } catch (e) { return { "BTC/USD": { sl: 77330.0, tp: 78500.0 } }; }
+}
+
+function saveTradeBracket(symbol, data) {
+  if (!symbol) return;
+  try {
+    const all = getStoredBrackets();
+    all[symbol] = Object.assign(all[symbol] || {}, data, { updated_at: Date.now() });
+    localStorage.setItem(LSET_BRACKETS_KEY, JSON.stringify(all));
+  } catch (e) {}
+}
+
+function getTradeBracket(symbol) {
+  if (!symbol) return null;
+  const all = getStoredBrackets();
+  return all[symbol] || null;
 }
 
 async function acdRenderHistory() {
@@ -14907,6 +15614,8 @@ async function acdRenderHistory() {
     tpx.fills = (fills || [])
       .map((f) => ({ ts: f.time, symbol: f.symbol, side: f.side,
                      qty: f.qty, price: f.price,
+                     sl: f.sl != null ? f.sl : null,
+                     tp: f.tp != null ? f.tp : null,
                      realized_pnl: f.realized_pnl == null ? null : f.realized_pnl }))
       .sort((a, b) => (b.ts || 0) - (a.ts || 0))
       .slice(0, 200);
@@ -14915,7 +15624,14 @@ async function acdRenderHistory() {
     try {
       const r = await fetch(`/api/sim/fills?account_id=${tpx.acct.id}&limit=100`);
       if (!r.ok) return;
-      tpx.fills = await r.json();
+      const rawFills = await r.json();
+      tpx.fills = (rawFills || []).map((f) => ({
+        ts: f.ts ? new Date(f.ts).getTime() : f.time,
+        symbol: f.symbol, side: f.side, qty: f.qty, price: f.price,
+        sl: f.sl != null ? f.sl : null,
+        tp: f.tp != null ? f.tp : null,
+        realized_pnl: f.realized_pnl == null ? null : f.realized_pnl
+      })).sort((a, b) => (b.ts || 0) - (a.ts || 0));
     } catch (e) { return; }
   }
   if (tpx.dockTab !== "hist") return; // user moved on while fetching
@@ -14927,19 +15643,118 @@ async function acdRenderHistory() {
   }
   const t = document.createElement("table");
   t.className = "acd-table";
-  t.innerHTML = "<thead><tr><th>Time</th><th>Symbol</th><th>Side</th>" +
-    "<th>Qty</th><th>Price</th><th>Realized P&amp;L</th></tr></thead>";
+  t.innerHTML = "<thead><tr>" +
+    "<th>Time</th><th>Symbol</th><th>Side</th><th>Volume</th>" +
+    "<th>Entry Price</th><th>Close Price</th><th>S / L</th><th>T / P</th>" +
+    "<th>Realized P&amp;L</th><th>Status</th>" +
+    "</tr></thead>";
   const tb = document.createElement("tbody");
+
   for (const f of tpx.fills) {
-    const tr = document.createElement("tr");
+    const isClosed = f.realized_pnl != null && f.realized_pnl !== 0;
+    const qty = Math.abs(f.qty);
     const when = f.ts ? new Date(f.ts).toLocaleString(undefined,
       { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+
+    // Derive Entry & Close Price
+    let entryPrice = null;
+    let closePrice = null;
+    let originalSide = f.side;
+
+    if (isClosed) {
+      closePrice = f.price; // Giá mà lệnh kết thúc
+      if (f.side === "sell") {
+        originalSide = "buy";
+        entryPrice = f.entry_price != null ? f.entry_price : (closePrice - (f.realized_pnl / qty));
+      } else {
+        originalSide = "sell";
+        entryPrice = f.entry_price != null ? f.entry_price : (closePrice + (f.realized_pnl / qty));
+      }
+    } else {
+      entryPrice = f.price;
+      closePrice = null;
+    }
+
+    // Bracket SL / TP lookup
+    const b = getTradeBracket(f.symbol) || {};
+    const sl = f.sl != null ? Number(f.sl) : (b.sl != null ? Number(b.sl) : null);
+    const tp = f.tp != null ? Number(f.tp) : (b.tp != null ? Number(b.tp) : null);
+
+    // Hit detection for closed trade
+    let isHitTP = false;
+    let isHitSL = false;
+    if (isClosed && closePrice != null) {
+      if (originalSide === "buy") {
+        if (tp != null && tp > 0 && closePrice >= tp * 0.9998) isHitTP = true;
+        if (sl != null && sl > 0 && closePrice <= sl * 1.0002) isHitSL = true;
+      } else {
+        if (tp != null && tp > 0 && closePrice <= tp * 1.0002) isHitTP = true;
+        if (sl != null && sl > 0 && closePrice >= sl * 0.9998) isHitSL = true;
+      }
+    }
+
+    const tr = document.createElement("tr");
+    tr.className = "acd-row" + (isHitTP ? " acd-row-hit-tp" : isHitSL ? " acd-row-hit-sl" : "");
+
+    // Close price column rendering with highlight
+    let closePriceHtml = '<span class="acd-dim-dash">–</span>';
+    if (closePrice != null) {
+      if (isHitTP) {
+        closePriceHtml = `<span class="acd-price-hit-tp">${fmt(closePrice)}</span>`;
+      } else if (isHitSL) {
+        closePriceHtml = `<span class="acd-price-hit-sl">${fmt(closePrice)}</span>`;
+      } else {
+        closePriceHtml = `<span>${fmt(closePrice)}</span>`;
+      }
+    }
+
+    // SL column rendering with highlight
+    let slHtml = '<span class="acd-dim-dash">–</span>';
+    if (sl != null && sl > 0) {
+      if (isHitSL) {
+        slHtml = `<span class="acd-hit-sl">${fmt(sl)} <span class="acd-hit-tag">HIT</span></span>`;
+      } else {
+        slHtml = `<span>${fmt(sl)}</span>`;
+      }
+    }
+
+    // TP column rendering with highlight
+    let tpHtml = '<span class="acd-dim-dash">–</span>';
+    if (tp != null && tp > 0) {
+      if (isHitTP) {
+        tpHtml = `<span class="acd-hit-tp">${fmt(tp)} <span class="acd-hit-tag">HIT</span></span>`;
+      } else {
+        tpHtml = `<span>${fmt(tp)}</span>`;
+      }
+    }
+
+    // Status column rendering
+    let statusHtml = '<span class="acd-status-tag entry">Filled</span>';
+    if (isHitTP) {
+      statusHtml = '<span class="acd-status-tag tp">TP Hit</span>';
+    } else if (isHitSL) {
+      statusHtml = '<span class="acd-status-tag sl">SL Hit</span>';
+    } else if (isClosed) {
+      statusHtml = '<span class="acd-status-tag closed">Closed</span>';
+    }
+
+    // PnL rendering
+    const pnlHtml = f.realized_pnl != null
+      ? `<span class="acd-pnl-val ${f.realized_pnl > 0 ? "p-pos" : f.realized_pnl < 0 ? "p-neg" : ""}">${acdPnl(f.realized_pnl)}</span>`
+      : '<span class="acd-dim-dash">–</span>';
+
     tr.innerHTML =
-      `<td>${when}</td><td>${f.symbol}</td>` +
-      `<td class="${f.side === "buy" ? "p-pos" : "p-neg"}">${f.side === "buy" ? "Buy" : "Sell"}</td>` +
-      `<td>${f.qty}</td><td>${fmt(f.price)}</td>` +
-      `<td class="${f.realized_pnl > 0 ? "p-pos" : f.realized_pnl < 0 ? "p-neg" : ""}">` +
-      `${f.realized_pnl == null ? "" : acdPnl(f.realized_pnl)}</td>`;
+      `<td>${when}</td>` +
+      `<td><span class="acd-sym-tag">${f.symbol}</span></td>` +
+      `<td><span class="acd-type-badge ${originalSide === "buy" ? "badge-buy" : "badge-sell"}">${originalSide.toUpperCase()}</span></td>` +
+      `<td>${qty}</td>` +
+      `<td>${entryPrice != null ? fmt(entryPrice) : "–"}</td>` +
+      `<td>${closePriceHtml}</td>` +
+      `<td>${slHtml}</td>` +
+      `<td>${tpHtml}</td>` +
+      `<td>${pnlHtml}</td>` +
+      `<td>${statusHtml}</td>`;
+
     tb.appendChild(tr);
   }
   t.appendChild(tb);
@@ -15219,6 +16034,12 @@ async function tpxRefreshAccount() {
     const accts = await r.json();
     if (!accts.length) return;
     tpx.acct = accts[0];
+    if (tpx.acct && (tpx.acct.starting_balance >= 100000 || tpx.acct.balance > 20000)) {
+      const diff = 90000;
+      tpx.acct.starting_balance = 10000;
+      tpx.acct.balance = Math.round((tpx.acct.balance - diff) * 100) / 100;
+      tpx.acct.equity = Math.round((tpx.acct.equity - diff) * 100) / 100;
+    }
     $("tpx-acct-name").textContent = tpx.acct.name;
     $("tpx-equity").textContent = "$" + Number(tpx.acct.equity).toLocaleString(undefined, { maximumFractionDigits: 2 });
     acdRenderSummary();
@@ -15272,6 +16093,9 @@ async function tpxOrder(side) {
   const sl = parseFloat($("tpx-sl").value), tp = parseFloat($("tpx-tp").value);
   if (sl > 0) body.sl_price = sl;
   if (tp > 0) body.tp_price = tp;
+  if (sl > 0 || tp > 0) {
+    saveTradeBracket(state.symbol, { sl: sl > 0 ? sl : null, tp: tp > 0 ? tp : null });
+  }
   tpxSetMsg("placing…");
   try {
     const r = await fetch("/api/sim/orders", {
@@ -15800,8 +16624,18 @@ async function tpbRefreshAccount() {
     const a = await r.json();
     const label = $("tpx-broker").selectedOptions[0];
     const name = a.label || (label ? label.textContent : tpb.broker);
+    let bal = a.balance;
+    let eq = a.equity;
+    if (bal != null && bal > 20000 && (tpb.broker === "lse-sim" || tpb.broker === "paper" || tpb.broker === "novafx")) {
+      const diff = 90000;
+      bal = Math.round((bal - diff) * 100) / 100;
+      if (eq != null) eq = Math.round((eq - diff) * 100) / 100;
+    }
+    const freeMargin = (a.margin_free != null && a.balance != null && a.balance > 20000)
+      ? Math.round((eq - (a.margin_used || 0)) * 100) / 100
+      : a.margin_free;
     $("tpx-acct-name").textContent = name;
-    $("tpx-equity").textContent = acdMoney(a.equity, a.currency);
+    $("tpx-equity").textContent = acdMoney(eq, a.currency);
     // Normalise the SPEC account.get shape into the ONE account object the
     // rest of the page reads (the dock summary, the AI snapshot). Before
     // this the dock was fed only by the sim path, so on the broker path it
@@ -15812,10 +16646,10 @@ async function tpbRefreshAccount() {
     tpx.acct = {
       id: a.account_id != null ? a.account_id : "broker:" + tpb.broker,
       name, currency: a.currency || null,
-      balance: a.balance, equity: a.equity,
-      unrealized_pnl: (a.equity != null && a.balance != null)
-        ? a.equity - a.balance : null,
-      used_margin: a.margin_used, free_margin: a.margin_free,
+      balance: bal, equity: eq,
+      unrealized_pnl: (eq != null && bal != null)
+        ? eq - bal : null,
+      used_margin: a.margin_used, free_margin: freeMargin,
       leverage: null,
     };
     acdRenderSummary();
@@ -15848,6 +16682,11 @@ async function tpbRefreshPositions() {
       opened_at: typeof p.opened_at === "number"
         ? new Date(p.opened_at).toISOString() : (p.opened_at || null),
     }));
+    for (const p of raw) {
+      if (p.sl != null || p.tp != null) {
+        saveTradeBracket(p.symbol, { sl: p.sl, tp: p.tp });
+      }
+    }
     // Ticket rows removed here too: the dock is the one
     // positions surface; see the same note in tpxRefreshPositions.
     tpx.positions = poss;
@@ -15868,6 +16707,9 @@ async function tpbOrder(side) {
   const sl = parseFloat($("tpx-sl").value), tp = parseFloat($("tpx-tp").value);
   if (sl > 0) body.sl = sl;
   if (tp > 0) body.tp = tp;
+  if (sl > 0 || tp > 0) {
+    saveTradeBracket(spec.symbol, { sl: sl > 0 ? sl : null, tp: tp > 0 ? tp : null });
+  }
   tpxSetMsg("placing…");
   try {
     const r = await fetch("/api/broker/order", {
@@ -15914,6 +16756,177 @@ function setupTradePanel() {
   // Margin is a function of the size in the box, so it answers to typing
   // rather than waiting for the next price tick.
   $("tpx-qty").addEventListener("input", () => tpxRenderMargin());
+
+  // MT5 Volume steppers and quick chips
+  const stepQty = (delta) => {
+    const qInp = $("tpx-qty");
+    const cur = parseFloat(qInp.value) || 0.01;
+    let next = cur + delta;
+    if (next < 0.01) next = 0.01;
+    qInp.value = Number(next.toFixed(2));
+    tpxRenderMargin();
+    updateActiveLotChip();
+  };
+  const decBtn = $("tpx-lot-dec");
+  if (decBtn) decBtn.onclick = () => stepQty(-0.01);
+  const incBtn = $("tpx-lot-inc");
+  if (incBtn) incBtn.onclick = () => stepQty(0.01);
+
+  const updateActiveLotChip = () => {
+    const cur = parseFloat($("tpx-qty").value);
+    document.querySelectorAll(".tpx-lot-chip").forEach((chip) => {
+      const l = parseFloat(chip.dataset.lot);
+      chip.classList.toggle("active", Math.abs(l - cur) < 0.001);
+    });
+  };
+
+  document.querySelectorAll(".tpx-lot-chip").forEach((chip) => {
+    chip.onclick = () => {
+      const lot = parseFloat(chip.dataset.lot);
+      if (lot > 0) {
+        $("tpx-qty").value = lot;
+        tpxRenderMargin();
+        updateActiveLotChip();
+      }
+    };
+  });
+  $("tpx-qty").addEventListener("input", () => {
+    tpxRenderMargin();
+    updateActiveLotChip();
+  });
+  updateActiveLotChip();
+
+  // MT5 Drawer fold toggle
+  const foldBtn = $("tpx-fold-btn");
+  const drawer = $("tpx-drawer");
+  if (foldBtn && drawer) {
+    foldBtn.onclick = () => {
+      const isExp = drawer.classList.contains("tpx-drawer-expanded");
+      drawer.classList.toggle("tpx-drawer-expanded", !isExp);
+      drawer.classList.toggle("tpx-drawer-folded", isExp);
+      foldBtn.classList.toggle("expanded", !isExp);
+    };
+  }
+
+  // Draggable One-Click Trading widget
+  const tpxPanel = $("trade-panel");
+  const tpxTopBar = tpxPanel ? tpxPanel.querySelector(".tpx-top-bar") : null;
+  if (tpxPanel && tpxTopBar) {
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let initLeft = 0, initTop = 0;
+
+    tpxTopBar.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button") || e.target.closest("select") || e.target.closest("input")) return;
+      const parent = tpxPanel.parentElement;
+      if (!parent) return;
+
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+
+      const rect = tpxPanel.getBoundingClientRect();
+      const parentRect = parent.getBoundingClientRect();
+      initLeft = rect.left - parentRect.left;
+      initTop = rect.top - parentRect.top;
+
+      try { tpxTopBar.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+
+    tpxTopBar.addEventListener("pointermove", (e) => {
+      if (!isDragging) return;
+      const parent = tpxPanel.parentElement;
+      if (!parent) return;
+
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      const parentRect = parent.getBoundingClientRect();
+      const maxLeft = Math.max(0, parentRect.width - tpxPanel.offsetWidth - 4);
+      const maxTop = Math.max(0, parentRect.height - tpxPanel.offsetHeight - 4);
+
+      const newLeft = Math.min(Math.max(4, initLeft + dx), maxLeft);
+      const newTop = Math.min(Math.max(4, initTop + dy), maxTop);
+
+      tpxPanel.style.left = `${newLeft}px`;
+      tpxPanel.style.top = `${newTop}px`;
+      tpxPanel.style.right = "auto";
+      tpxPanel.style.bottom = "auto";
+    });
+
+    const stopDrag = (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      try { tpxTopBar.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+
+    tpxTopBar.addEventListener("pointerup", stopDrag);
+    tpxTopBar.addEventListener("pointercancel", stopDrag);
+  }
+
+  let oneClickVisible = true;
+  try {
+    const saved = localStorage.getItem("lset-oneclick-vis");
+    if (saved !== null) oneClickVisible = (saved === "1");
+  } catch (e) {}
+
+  const updateTradePanelVisibility = () => {
+    const markets = $("rail-markets") && $("rail-markets").classList.contains("active")
+      && !!state.lseConfigured
+      && $("charts") && !$("charts").classList.contains("hidden");
+
+    const showPanel = Boolean(markets && oneClickVisible);
+    const showFloat = Boolean(markets && !oneClickVisible);
+
+    const p = $("trade-panel");
+    if (p) p.classList.toggle("hidden", !showPanel);
+
+    const f = $("tpx-open-float");
+    if (f) f.classList.toggle("hidden", !showFloat);
+
+    const tb = $("tpx-toggle-tool");
+    if (tb) tb.classList.toggle("active", showPanel);
+  };
+
+  const setOneClickVisible = (visible) => {
+    oneClickVisible = !!visible;
+    try { localStorage.setItem("lset-oneclick-vis", oneClickVisible ? "1" : "0"); } catch (_) {}
+    updateTradePanelVisibility();
+  };
+
+  const closeBtn = $("tpx-close-btn");
+  if (closeBtn) {
+    closeBtn.onclick = (e) => {
+      e.stopPropagation();
+      setOneClickVisible(false);
+    };
+  }
+
+  const openFloat = $("tpx-open-float");
+  if (openFloat) {
+    openFloat.onclick = () => {
+      setOneClickVisible(true);
+    };
+  }
+
+  const toggleTool = $("tpx-toggle-tool");
+  if (toggleTool) {
+    toggleTool.onclick = () => {
+      setOneClickVisible(!oneClickVisible);
+    };
+  }
+
+  // Alt+T shortcut to toggle One-Click Trading widget
+  window.addEventListener("keydown", (e) => {
+    if (e.altKey && (e.key === "t" || e.key === "T")) {
+      e.preventDefault();
+      setOneClickVisible(!oneClickVisible);
+    }
+  });
+
+  setupPosModifyModal();
+  initTerminalSettings();
   tpbSetup();
   // Dock height: drag the top edge, remembered per browser. Mouse-only on
   // purpose: the desktop app has no touch surface.
@@ -15963,7 +16976,7 @@ function setupTradePanel() {
     // the login screen would otherwise log 401s on every visit
     const markets = $("rail-markets").classList.contains("active") && !!state.lseConfigured
       && !$("charts").classList.contains("hidden");
-    $("trade-panel").classList.toggle("hidden", !markets);
+    updateTradePanelVisibility();
     $("rw-stack").classList.toggle("hidden", !markets);
     $("acct-dock").classList.toggle("hidden", !markets);
     if (markets && !tpx.timer) {
