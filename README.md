@@ -40,13 +40,13 @@ and traded, and a strategy can attach any series as alternative data with
 `use NAME`, from economic releases to your own imports.
 
 **Execution.** Orders go through
-[Brue Connect](https://github.com/londonstrategicedge/brue-connect). Each
+[Brue Connect](https://github.com/ultimateBroK/brue-connect). Each
 broker has an adapter and your broker login never leaves your computer. The
 LSE demo account is the first adapter. Positions, fills and P&L show in the
 ticket and the assistant can read them.
 
 **Brue.** You can also write indicators and entry rules in
-[Brue](https://github.com/londonstrategicedge/brue), a small language that
+[Brue](https://github.com/ultimateBroK/brue), a small language that
 runs on a Python engine.
 
 ## Key
@@ -68,9 +68,9 @@ the background and installs them the next time it opens.
 You need Python 3.10 or newer and Node 20 or newer.
 
 ```
-git clone https://github.com/londonstrategicedge/lse-terminal.git
-git clone https://github.com/londonstrategicedge/brue.git
-git clone https://github.com/londonstrategicedge/brue-connect.git
+git clone https://github.com/ultimateBroK/lse-terminal.git
+git clone https://github.com/ultimateBroK/brue.git
+git clone https://github.com/ultimateBroK/brue-connect.git
 cd lse-terminal
 python -m venv .venv
 .venv/bin/pip install -e ../brue -e ../brue-connect -e .

@@ -30,3 +30,16 @@ lse_terminal/ui/static/assets/research/
 .wvenv/
 desktop/build-*.log
 desktop/*.log
+
+# Local environment & IDE
+.envrc
+.env
+.vscode/
+.idea/
+
+# Pixi environment
+.pixi/
+
+# Bun lock (project tracks npm package-lock.json)
+bun.lock
+frontend/bun.lock

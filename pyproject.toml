@@ -64,4 +64,21 @@ packages = ["lse_terminal"]
 
 [project.urls]
 Homepage = "https://londonstrategicedge.com"
-Repository = "https://github.com/londonstrategicedge/lse-terminal"
+Repository = "https://github.com/ultimateBroK/lse-terminal"
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+
+[tool.pixi.pypi-dependencies]
+brue-language = { path = "../brue", editable = true }
+brue-connect = { path = "../brue-connect", editable = true }
+lse-terminal = { path = ".", editable = true, extras = ["dev"] }
+
+[tool.pixi.tasks]
+build-frontend = { cmd = "bun run build", cwd = "frontend" }
+start = "lset"
+test = "pytest tests"
