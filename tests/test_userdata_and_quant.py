@@ -79,6 +79,26 @@ def test_resamples_to_higher_timeframe(client):
     assert 11 <= len(rows) <= 13  # 48 hourly bars -> ~12 4h buckets
 
 
+def test_import_3m_timeframe_and_resampling(client):
+    r = client.post("/api/data/import",
+                    json={"symbol": "MY:3M", "name": "3m Test", "csv_text": rising_csv(60, step=180)})
+    assert r.status_code == 200, r.text
+    entry = r.json()
+    assert entry["timeframe"] == "3m"
+
+    c3 = client.get("/api/candles", params={
+        "provider": "userdata", "symbol": "MY:3M", "timeframe": "3m", "limit": 10,
+    })
+    assert c3.status_code == 200, c3.text
+    assert len(c3.json()["candles"]) == 10
+
+    c15 = client.get("/api/candles", params={
+        "provider": "userdata", "symbol": "MY:3M", "timeframe": "15m", "limit": 100,
+    })
+    assert c15.status_code == 200, c15.text
+    assert 12 <= len(c15.json()["candles"]) <= 13
+
+
 def test_delete_removes_dataset(client):
     client.post("/api/data/import",
                 json={"symbol": "MY:DEL", "csv_text": rising_csv(10)})
