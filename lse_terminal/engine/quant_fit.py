@@ -142,7 +142,7 @@ def _num(frame: pd.DataFrame, col: str) -> np.ndarray:
 def _tf_label(dt_seconds: float) -> str:
     if dt_seconds <= 0:
         return "irregular"
-    for secs, name in ((1, "1s"), (60, "1m"), (300, "5m"), (900, "15m"),
+    for secs, name in ((1, "1s"), (60, "1m"), (180, "3m"), (300, "5m"), (900, "15m"),
                        (1800, "30m"), (3600, "1h"), (14400, "4h"),
                        (86400, "1d"), (604800, "1w")):
         if abs(dt_seconds - secs) <= max(1.0, secs * 0.2):

@@ -5359,7 +5359,8 @@ def create_app() -> FastAPI:
                 entry = userdata.import_table(
                     userdata._slug(sym).upper(), raw,
                     name=disp or (body.symbol or dataset),
-                    folder=body.folder, source_ext=".parquet")
+                    folder=body.folder, source_ext=".parquet",
+                    timeframe=body.timeframe or None)
                 job.update(status="done", entry=entry,
                            detail=f"imported {entry['rows']} rows")
                 os.remove(path)  # library keeps its own copy

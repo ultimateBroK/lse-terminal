@@ -29,10 +29,38 @@ _TF_SECONDS = {
     # whose imports ARE sub-minute; a 1m-native import asked for 1s hits
     # the existing divisibility refusal below, same as 1h-native asked
     # for 1m always has.
-    "1s": 1, "30s": 30,
-    "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800,
+    "1s": 1, "5s": 5, "10s": 10, "15s": 15, "30s": 30,
+    "1m": 60, "2m": 120, "3m": 180, "4m": 240, "5m": 300, "10m": 600, "15m": 900, "30m": 1800, "45m": 2700,
+    "1h": 3600, "2h": 7200, "3h": 10800, "4h": 14400, "6h": 21600, "8h": 28800, "12h": 43200,
+    "1d": 86400, "1w": 604800, "1mo": 2592000, "1M": 2592000,
 }
+
+
+def parse_timeframe_seconds(tf: str | None) -> int | None:
+    if not tf or tf == "?":
+        return None
+    tf_str = str(tf).strip()
+    if tf_str in _TF_SECONDS:
+        return _TF_SECONDS[tf_str]
+    m = re.match(r"^(\d+)\s*(s|m|min|h|d|w|mo|M)$", tf_str, re.IGNORECASE)
+    if not m:
+        return None
+    val = int(m.group(1))
+    unit = m.group(2).lower()
+    if unit == "s":
+        return val
+    elif unit in ("m", "min"):
+        return val * 60
+    elif unit == "h":
+        return val * 3600
+    elif unit == "d":
+        return val * 86400
+    elif unit == "w":
+        return val * 604800
+    elif unit in ("mo", "m"):
+        return val * 2592000
+    return None
+
 
 _TIME_NAMES = ("ts", "time", "timestamp", "date", "datetime")
 _FIELD_ALIASES = {
@@ -56,16 +84,49 @@ def _manifest_path() -> Path:
     return data_dir() / "manifest.json"
 
 
+def _heal_entry_timeframe(sym: str, entry: dict) -> str | None:
+    csv_file = entry.get("file")
+    if csv_file:
+        fp = data_dir() / csv_file
+        if fp.exists():
+            try:
+                sample_df = pd.read_csv(fp, nrows=100)
+                if "ts" in sample_df.columns and len(sample_df) >= 3:
+                    tf = infer_timeframe(sample_df)
+                    if tf and tf != "?":
+                        return tf
+            except Exception:
+                pass
+    m = re.search(r"_(\d+[smhdw]|1mo)$", sym, re.IGNORECASE)
+    if m:
+        return m.group(1).lower()
+    return None
+
+
 def load_manifest() -> dict:
     try:
-        return json.loads(_manifest_path().read_text())
+        manifest = json.loads(_manifest_path().read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+    healed = False
+    for sym, entry in manifest.items():
+        if entry.get("kind") == "ohlcv" and entry.get("timeframe") in (None, "", "?"):
+            inferred = _heal_entry_timeframe(sym, entry)
+            if inferred:
+                entry["timeframe"] = inferred
+                healed = True
+    if healed:
+        try:
+            _save_manifest(manifest)
+        except Exception:
+            pass
+    return manifest
 
 
 def _save_manifest(m: dict) -> None:
     data_dir().mkdir(parents=True, exist_ok=True)
     _manifest_path().write_text(json.dumps(m, indent=2) + "\n")
+
 
 
 def _slug(symbol: str) -> str:
@@ -177,14 +238,46 @@ def repair_float32_prices(df: pd.DataFrame) -> tuple[pd.DataFrame, int | None]:
 
 def infer_timeframe(df: pd.DataFrame) -> str:
     """Best-effort label from the median bar spacing; '?' when irregular."""
-    if len(df) < 3:
+    if len(df) < 3 or "ts" not in df.columns:
         return "?"
     diffs = df["ts"].diff().dropna()
+    if diffs.empty:
+        return "?"
     med = float(diffs.median())
+    if med <= 0:
+        return "?"
     for label, secs in _TF_SECONDS.items():
-        if abs(med - secs) < secs * 0.05:
+        if abs(med - secs) <= max(1.0, secs * 0.05):
             return label
+    # Dynamic fallback for arbitrary regular intervals
+    if med < 60:
+        s = round(med)
+        if abs(med - s) <= 0.1 and s > 0:
+            return f"{int(s)}s"
+    elif med < 3600:
+        m = med / 60.0
+        rm = round(m)
+        if abs(m - rm) <= 0.05 * rm and rm > 0:
+            return f"{int(rm)}m"
+    elif med < 86400:
+        h = med / 3600.0
+        rh = round(h)
+        if abs(h - rh) <= 0.05 * rh and rh > 0:
+            return f"{int(rh)}h"
+    elif med < 604800:
+        d = med / 86400.0
+        rd = round(d)
+        if abs(d - rd) <= 0.05 * rd and rd > 0:
+            return f"{int(rd)}d"
+    elif med < 2592000:
+        w = med / 604800.0
+        rw = round(w)
+        if abs(w - rw) <= 0.05 * rw and rw > 0:
+            return f"{int(rw)}w"
+    elif 25 * 86400 <= med <= 35 * 86400:
+        return "1mo"
     return "?"
+
 
 
 def _parse_time_series(text: str) -> pd.DataFrame:
@@ -336,7 +429,7 @@ def preview_csv(text: str) -> dict:
 
 
 def import_csv(symbol: str, text: str, name: str = "", folder: str = "",
-               kind: str = "") -> dict:
+               kind: str = "", timeframe: str | None = None) -> dict:
     """Normalize + store one dataset; returns its manifest entry.
 
     kind: '' = auto-detect; 'ohlcv' = chartable candles; 'series' =
@@ -348,7 +441,7 @@ def import_csv(symbol: str, text: str, name: str = "", folder: str = "",
     if kind == "ohlcv":
         df = normalize_csv(text)
         df, repaired_dp = repair_float32_prices(df)
-        tf = infer_timeframe(df)
+        tf = timeframe if (timeframe and timeframe not in ("", "tick", "?")) else infer_timeframe(df)
         columns = []
     else:
         df = _parse_time_series(text)
@@ -393,7 +486,8 @@ def import_csv(symbol: str, text: str, name: str = "", folder: str = "",
 
 
 def import_table(symbol: str, raw: pd.DataFrame, name: str = "",
-                 folder: str = "", kind: str = "", source_ext: str = ".csv") -> dict:
+                 folder: str = "", kind: str = "", source_ext: str = ".csv",
+                 timeframe: str | None = None) -> dict:
     """Import an already-decoded table (any format). Same semantics as
     import_csv, minus the CSV parsing."""
     kind = kind or detect_kind_frame(raw)
@@ -401,7 +495,7 @@ def import_table(symbol: str, raw: pd.DataFrame, name: str = "",
     if kind == "ohlcv":
         df = normalize_frame(raw)
         df, repaired_dp = repair_float32_prices(df)
-        tf = infer_timeframe(df)
+        tf = timeframe if (timeframe and timeframe not in ("", "tick", "?")) else infer_timeframe(df)
         columns = []
     else:
         df = series_frame(raw)
@@ -571,7 +665,7 @@ def delete_dataset(symbol: str) -> bool:
 class UserDataProvider(Provider):
     name = "userdata"
     title = "My Data"
-    timeframes = list(_TF_SECONDS)
+    timeframes = ["1s", "30s", "1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
     deterministic = True
 
     def configured(self) -> bool:
@@ -600,12 +694,25 @@ class UserDataProvider(Provider):
         df = pd.read_csv(data_dir() / entry["file"])
 
         native = entry.get("timeframe", "?")
+        if native in (None, "", "?"):
+            inferred = infer_timeframe(df)
+            if inferred and inferred != "?":
+                native = inferred
+                entry["timeframe"] = native
+                m = load_manifest()
+                if symbol in m:
+                    m[symbol]["timeframe"] = native
+                    try:
+                        _save_manifest(m)
+                    except Exception:
+                        pass
         if timeframe != native:
-            native_s = _TF_SECONDS.get(native)
-            want_s = _TF_SECONDS.get(timeframe)
+            native_s = parse_timeframe_seconds(native)
+            want_s = parse_timeframe_seconds(timeframe)
             if native_s is None or want_s is None or want_s % native_s != 0:
                 raise NotSupported(
                     f"{symbol} was imported as {native}; cannot serve {timeframe}")
+
             # epoch-floor buckets, same rule as everywhere else in the app:
             # never local-calendar truncation.
             bucket = (df["ts"] // want_s) * want_s

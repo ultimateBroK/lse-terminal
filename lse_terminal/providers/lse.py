@@ -88,7 +88,7 @@ class LseProvider(Provider):
     # (max 24h back) in _tick_candles below. Futures pairs (ES.F family)
     # have no sub-minute bars; the gate's own error message surfaces in
     # the UI status line for those.
-    timeframes = ["tick", "1s", "30s", "1m", "5m", "15m", "30m",
+    timeframes = ["tick", "1s", "30s", "1m", "3m", "5m", "15m", "30m",
                   "1h", "4h", "1d", "1w"]
 
     def __init__(self, api_key: str | None = None):
