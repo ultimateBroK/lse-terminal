@@ -2,9 +2,9 @@
    types, OHLC legend. Vanilla JS on purpose; the richer React workspace
    replaces this later, speaking to exactly the same /api endpoints. */
 
-const TF_SECONDS = { "1s": 1, "30s": 30,
-                     "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-                     "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800 };
+const TF_SECONDS = { "1s": 1, "5s": 5, "15s": 15, "30s": 30,
+                     "1m": 60, "2m": 120, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+                     "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400, "1w": 604800, "1mo": 2592000 };
 // A tick chart appends one bar per trade; big liquid pairs print ~24/s, so
 // without a cap a day-open session would grow the array into millions of
 // bars and the canvas repaint would die long before the memory did.
@@ -2165,7 +2165,13 @@ function renderTimeframes() {
   // the finer buttons were live and simply failed when pressed. Disable what
   // this dataset cannot serve instead of offering a click that errors.
   const nativeMin = state.provider === "userdata" ? tfMinutes(datasetTf(state.symbol)) : 0;
-  for (const tf of (p ? p.timeframes : [])) {
+  const tfs = [...(p ? p.timeframes : [])];
+  const nativeTf = state.provider === "userdata" ? datasetTf(state.symbol) : "";
+  if (nativeTf && !tfs.includes(nativeTf)) {
+    tfs.push(nativeTf);
+    tfs.sort((a, b) => (tfMinutes(a) || 0) - (tfMinutes(b) || 0));
+  }
+  for (const tf of tfs) {
     const b = document.createElement("button");
     b.textContent = tf;
     const tooFine = nativeMin > 0 && tfMinutes(tf) > 0 && tfMinutes(tf) < nativeMin;
@@ -2191,12 +2197,12 @@ function datasetTf(symbol) {
 /* Minutes per bar, for comparing two timeframe strings. 0 = not comparable
    (tick charts, or an unknown label). */
 function tfMinutes(tf) {
-  const m = /^(\d+)\s*(s|m|h|d|w)$/i.exec(String(tf || "").trim());
+  const m = /^(\d+)\s*(s|m|h|d|w|mo)$/i.exec(String(tf || "").trim());
   if (!m) return 0;
   const n = Number(m[1]);
   const unit = m[2].toLowerCase();
   return n * (unit === "s" ? 1 / 60 : unit === "m" ? 1
-            : unit === "h" ? 60 : unit === "d" ? 1440 : 10080);
+            : unit === "h" ? 60 : unit === "d" ? 1440 : unit === "w" ? 10080 : 43200);
 }
 
 async function loadInstruments(query = "") {
@@ -12300,7 +12306,8 @@ async function refreshMLDatasets() {
    engine refuses anything finer (a daily file cannot yield hourly bars),
    so an impossible choice must never be selectable; before this, the
    default 1h on a daily sample failed the build with an opaque 502. */
-const ML_DS_TFS = [["1s", 1], ["30s", 30], ["1m", 60], ["5m", 300],
+const ML_DS_TFS = [["1s", 1], ["5s", 5], ["15s", 15], ["30s", 30],
+                   ["1m", 60], ["3m", 180], ["5m", 300],
                    ["15m", 900], ["30m", 1800], ["1h", 3600],
                    ["4h", 14400], ["1d", 86400], ["1w", 604800]];
 function mlDsSyncTf() {

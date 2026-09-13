@@ -56,10 +56,10 @@ import { useChartSettings } from '@/contexts/ChartSettingsContext';
 const BACKTEST_SESSION_KEY = 'lse_backtest_session';
 
 
-const timeframes = ["1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W"];
+const timeframes = ["1m", "3m", "5m", "15m", "30m", "1H", "4H", "1D", "1W"];
 
 const TF_MINUTES: Record<string, number> = {
-  '1m': 1, '5m': 5, '15m': 15, '30m': 30,
+  '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
   '1H': 60, '4H': 240, '1D': 1440, '1W': 10080, '1M': 43200,
 };
 

@@ -46,8 +46,9 @@ export const BACKTEST_API = '';
 // for candle bucketing, countdown timers, and API limit calculations.
 export const TF_MINUTES: Record<string, number> = {
   'tick': 0,   // 0 signals tick mode (raw trade-by-trade data)
-  '1s': 1/60, '5s': 5/60, '10s': 10/60, '30s': 30/60, // Sub-minute second timeframes
+  '1s': 1/60, '5s': 5/60, '10s': 10/60, '15s': 15/60, '30s': 30/60, // Sub-minute second timeframes
   '1m': 1,
+  '3m': 3,
   '5m': 5,
   '15m': 15,
   '30m': 30,
@@ -55,7 +56,8 @@ export const TF_MINUTES: Record<string, number> = {
   '4H': 240,
   '1D': 1440,
   '1W': 10080,
-  '1M': 43200
+  '1M': 43200,
+  '1mo': 43200,
 };
 
 // Crypto base currencies for symbol classification
